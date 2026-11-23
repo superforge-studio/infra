@@ -21,6 +21,8 @@ export const INFRA_ERRORS = {
     "unknown-key": "No project has this key",
     "revoked-key":
         "The key was revoked: whatever sends it still has the old one",
+    "expired-key":
+        "A test key that went its lifetime without a call: make a new one",
     invalid:
         "The call's body, query or path isn't what it takes; `issues` says what",
     "too-large": "The call's body is over its limit; `limit` is how many bytes",

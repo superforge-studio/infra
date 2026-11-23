@@ -1,67 +1,58 @@
-import type { z } from "zod"
 import type {
+    AgentAllow,
     AgentConnection,
-    AgentToken,
-    agent_refused,
-    agent_request
-} from "./agents.js"
-import type {
-    comment_refused,
-    infra_project,
-    kept_comment,
-    start_refused,
-    started_login,
-    verified_login,
-    verify_refused
-} from "./answers.js"
-import type { FiledComment } from "./comments.js"
-import type { AgentScope } from "./primitives.js"
+    AgentRefused,
+    AgentRequest,
+    CommentRefused,
+    FiledComment,
+    InfraProject,
+    KeptComment,
+    LoginProof,
+    LoginStart,
+    OAuthCall,
+    StartedLogin,
+    StartRefused,
+    VerifiedLogin,
+    VerifyRefused
+} from "./contract/index.js"
 import type { AsyncOperationResult } from "./results.js"
 
 // Superforge Infra, the backend services an app runs on, as an app's
-// server calls it: login, where Infra emails a visitor a code and a link,
-// and says whether what they brought back is right; comments, what the
-// app's people said about it from its toolbar; Claude's login to the app's
-// MCP; and which project the app's key is for. The app keeps its own users
-// and sessions, and its own analytics. Infra's README has the calls; an
-// app reaches them through one of these, the real Infra (client.ts) or the
-// stand-in (stand-in.ts), as `chooseInfra` picks (choose.ts).
-
-/** A code typed with the address it went to, or a link's token */
-export type LoginProof = { email: string; code: string } | { token: string }
+// server calls it: login, where Infra sends a person a code and a link and
+// says whether what they brought back is right; comments, what the app's
+// people said about it from its toolbar; Claude's login to the app's MCP;
+// and which project the app's key is for. The app keeps its own users,
+// sessions and analytics. Infra's README has the calls; an app reaches
+// them through one of these, the real Infra (client.ts) or the stand-in
+// (stand-in.ts), as `chooseInfra` picks (choose.ts). Every refusal is
+// Infra's own `error`, `{ reason, message, … }`, as its contract has it
+// (contract/), or `unavailable`.
 
 /** What an app asks of Infra, whichever answers: the real one or the stand-in */
 export type Infra = {
     /**
-     * Which project the key is for, its mode, and the domains its login
-     * emails link to (`domains`, null from an Infra that doesn't say),
-     * which Settings shows beside the app's own (an app's Settings).
+     * Which project the key is for, its mode, and its domains, the only
+     * hosts besides localhost its login links go to and Claude logs in at
      */
     project(): AsyncOperationResult<InfraProject, InfraUnavailable>
     /**
-     * Emails `email` a six-digit code, and a link back to the app's
-     * `/login` when `origin` is one of the project's domains or
-     * localhost. `ip` is the visitor's, which Infra's limits count.
+     * Sends someone a six-digit code, on `channel` to `address`, and a link
+     * to `link_to` when it's on one of the project's domains or localhost.
+     * `ip` is theirs, which Infra's limits count.
      */
-    startLogin(request: {
-        email: string
-        ip: string
-        origin: string | null
-    }): AsyncOperationResult<StartedLogin, StartRefused | InfraUnavailable>
+    startLogin(
+        request: LoginStart
+    ): AsyncOperationResult<StartedLogin, StartRefused | InfraUnavailable>
     /**
-     * Whose email `proof` is: the code typed with the address it went to,
-     * or the link's token. Either works once.
+     * Whose address `proof` is: the code typed with the address it went to,
+     * or the link's token alone. Either works once, and spends the other.
      */
     verifyLogin(
         proof: LoginProof
-    ): AsyncOperationResult<
-        z.output<typeof verified_login>,
-        VerifyRefused | InfraUnavailable
-    >
+    ): AsyncOperationResult<VerifiedLogin, VerifyRefused | InfraUnavailable>
     /**
-     * Sends Infra a comment someone logged in wrote about an element of a
-     * page, which the toolbar posted to the app's own /api/comments, with
-     * who they are (comments.ts). Infra keeps it, a test key's too, and
+     * Sends Infra a comment someone on the app's team filed from its
+     * toolbar, with who they are. Infra keeps it, a test key's too, and
      * answers its ID. It's never retried: a comment sent twice is kept
      * twice.
      */
@@ -73,22 +64,28 @@ export type Infra = {
     // (agents.ts, and Infra's README, "Claude")
 
     /**
-     * Passes one of Claude's OAuth calls through to Infra (`path`, after
-     * `/oauth`: `/authorize`, `/token`, `/metadata`…), with the app's
-     * key and `origin`, and answers what Infra answers, as it is
+     * Answers one of Claude's OAuth calls to the app, Claude's or the
+     * browser's `request` unread: the server's metadata, built here, and
+     * the rest on Infra, with the app's key and `origin`. Authorize sends
+     * the browser to the app's Allow page, or back to Claude.
      */
-    passOAuth(request: Request, path: string, origin: string): Promise<Response>
+    passOAuth(
+        request: Request,
+        call: OAuthCall | "metadata",
+        origin: string
+    ): Promise<Response>
     /** What the Allow page shows of a request Claude made */
     agentRequest(
         request_id: string
     ): AsyncOperationResult<AgentRequest, AgentRefused | InfraUnavailable>
     /**
-     * Someone on the team, by their email, allowed Claude's request: where
-     * their browser goes back to Claude, with the one-time code
+     * Someone on the team, by the app's ID for them, allowed Claude's
+     * request: where their browser goes back to Claude, with the one-time
+     * code
      */
     allowAgent(
         request_id: string,
-        allowed: { email: string; scopes: AgentScope[] }
+        allowed: AgentAllow
     ): AsyncOperationResult<
         { redirect_to: string },
         AgentRefused | InfraUnavailable
@@ -100,9 +97,9 @@ export type Infra = {
         { redirect_to: string },
         AgentRefused | InfraUnavailable
     >
-    /** Someone's connections, oldest first, for their Connected list */
+    /** Someone's connections, by the app's ID for them, oldest first */
     agentConnections(
-        email: string
+        user_id: string
     ): AsyncOperationResult<AgentConnection[], InfraUnavailable>
     /** Ends one connection: Claude can't refresh it */
     endAgentConnection(
@@ -110,35 +107,35 @@ export type Infra = {
     ): AsyncOperationResult<null, AgentRefused | InfraUnavailable>
     /** Ends all of someone's, as taking them off the team does */
     endAgentConnections(
-        email: string
+        user_id: string
     ): AsyncOperationResult<number, InfraUnavailable>
     /**
      * Whom a token Claude brings acts as, and what it may do, when Infra
-     * signed it for this app at `origin`, checked with Infra's public keys
+     * signed it for this app at `origin`, for `resource`, the address of
+     * the app's MCP it was brought to, checked with Infra's public keys
      */
     checkAgentToken(
         token: string,
-        origin: string
+        expected: { origin: string; resource: string }
     ): AsyncOperationResult<AgentToken, "invalid-token" | InfraUnavailable>
 }
 
-// What Infra answers, as the app sees it (answers.ts has each field)
-export type InfraProject = z.output<typeof infra_project>
-export type StartedLogin = z.output<typeof started_login>
-export type StartRefused = z.output<typeof start_refused>
-export type VerifyRefused = z.output<typeof verify_refused>
-export type KeptComment = z.output<typeof kept_comment>
-export type CommentRefused = z.output<typeof comment_refused>
-export type AgentRequest = z.output<typeof agent_request>["request"]
-export type AgentRefused = z.output<typeof agent_refused>
-export type { AgentConnection, AgentToken, FiledComment }
+/** What the app learns from a token Claude brings, once it's checked */
+export type AgentToken = {
+    /** Whom Claude acts as: the app's ID for them, checked against its team */
+    user_id: string
+    /** What they let Claude do */
+    scopes: AgentAllow["scopes"]
+    /** Which of their connections it is, to end it */
+    connection_id: string
+}
 
 /**
  * Infra couldn't be asked, and why, in plain words: no key in a build, a
- * key it refused, an error this version of the package doesn't know, or an
- * answer that didn't come or didn't make sense. `message` is Infra's own
- * when it gave one, and says what fixes it when something does. It's
- * logged where it happens; an app shows it to its own team, never to a
- * visitor, who only learns that login isn't working.
+ * key it refused, an Infra that didn't answer, or an answer that doesn't
+ * fit the contract. `message` is Infra's own when it gave one, and says
+ * what fixes it when something does. It's logged where it happens; an app
+ * shows it to its own team, never to a visitor, who only learns that login
+ * isn't working.
  */
 export type InfraUnavailable = { reason: "unavailable"; message: string }

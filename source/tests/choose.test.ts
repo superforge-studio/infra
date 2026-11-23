@@ -76,9 +76,12 @@ test("a variable set empty, as .env.example has them, is unset", () => {
     expect(logged).not.toHaveBeenCalled()
 })
 
-test("a variable that isn't set right calls nothing", () => {
+test("a build never reads INFRA_URL, so no variable sends its key elsewhere", () => {
     expect(
         choose(false, { INFRA_SECRET_KEY: SECRET_KEY, INFRA_URL: "not a url" })
+    ).toBe("secret key")
+    expect(
+        choose(true, { INFRA_TEST_KEY: TEST_KEY, INFRA_URL: "not a url" })
     ).toBe("nothing")
 })
 
@@ -91,9 +94,9 @@ test("a build with nothing to call says why at every call, and what fixes it", a
             checkout: emptyCheckout()
         })
         const started = await infra.startLogin({
-            email: "ada@example.com",
-            ip: "::1",
-            origin: null
+            channel: "email",
+            address: "ada@example.com",
+            ip: "::1"
         })
         return started.ok ? null : started.error.message
     }
@@ -106,9 +109,6 @@ test("a build with nothing to call says why at every call, and what fixes it", a
     expect(await why({ INFRA_SECRET_KEY: "sf_secret_short" })).toContain(
         "isn't a secret key (sf_secret_ and 32 letters and digits)"
     )
-    expect(
-        await why({ INFRA_SECRET_KEY: SECRET_KEY, INFRA_URL: "not a url" })
-    ).toContain("INFRA_URL isn't set right on the app's service in Railway")
 
     // Claude's OAuth calls say it too, as OAuth's error_description
     const { infra } = chooseInfra({
@@ -118,7 +118,7 @@ test("a build with nothing to call says why at every call, and what fixes it", a
     })
     const passed = await infra.passOAuth(
         new Request("https://vmdsystem.com/oauth/token", { method: "POST" }),
-        "/token",
+        "token",
         "https://vmdsystem.com"
     )
     expect(passed.status).toBe(503)

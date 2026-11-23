@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { expect, test, vi } from "vitest"
 import { infraClient } from "../client.js"
-import type { FiledComment } from "../infra.js"
+import type { FiledComment } from "../contract/index.js"
 
 // The client against a fake of Infra's API, answering what Infra's README
 // says each call answers, so no test reaches the real one
@@ -11,43 +11,56 @@ const ADDRESS = "https://infra.test/v1"
 
 // Infra, answering `answer` to every call, and what each call sent it
 function fakeInfra(answer: { status: number; body: unknown }) {
-    const received: { path: string; key: string | null; body: unknown }[] = []
-    const fake = new Hono().post("*", async (context) => {
+    const received: {
+        method: string
+        path: string
+        key: string | null
+        client: string | null
+        body: unknown
+    }[] = []
+    const fake = new Hono().all("*", async (context) => {
+        const text = await context.req.text()
         received.push({
-            path: context.req.path,
+            method: context.req.method,
+            path: `${context.req.path}${new URL(context.req.url).search}`,
             key: context.req.header("Authorization") ?? null,
-            body: await context.req.json()
+            client: context.req.header("Infra-Client") ?? null,
+            body: text === "" ? null : JSON.parse(text)
         })
-        return new Response(JSON.stringify(answer.body), {
-            status: answer.status,
-            headers: { "Content-Type": "application/json" }
-        })
+        return Response.json(answer.body, { status: answer.status })
     })
     const send: typeof fetch = async (input, init) =>
         fake.request(typeof input === "string" ? input : input.toString(), init)
     return { infra: infraClient({ key: KEY, url: ADDRESS, send }), received }
 }
 
-test("starting a login sends the key, the visitor and the app's origin", async () => {
+const START = {
+    channel: "email" as const,
+    address: "ada@example.com",
+    ip: "203.0.113.7"
+}
+
+test("starting a login sends the key, the package's version, and who it's for", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { infra, received } = fakeInfra({
         status: 200,
         body: {
-            email: "ada@example.com",
+            channel: "email",
+            address: "ada@example.com",
             with_link: true,
             expires_at: "2026-11-15T18:15:00.000Z",
             test: { code: "123456", link: "http://localhost:3000/login#x" }
         }
     })
     const started = await infra.startLogin({
-        email: "ada@example.com",
-        ip: "203.0.113.7",
-        origin: "http://localhost:3000"
+        ...START,
+        link_to: "http://localhost:3000/login"
     })
     expect(started).toEqual({
         ok: true,
         data: {
-            email: "ada@example.com",
+            channel: "email",
+            address: "ada@example.com",
             with_link: true,
             expires_at: new Date("2026-11-15T18:15:00.000Z"),
             test: { code: "123456", link: "http://localhost:3000/login#x" }
@@ -55,161 +68,85 @@ test("starting a login sends the key, the visitor and the app's origin", async (
     })
     expect(received).toEqual([
         {
+            method: "POST",
             path: "/v1/login/start",
             key: `Bearer ${KEY}`,
-            body: {
-                email: "ada@example.com",
-                ip: "203.0.113.7",
-                origin: "http://localhost:3000"
-            }
+            client: "@superforge/infra/0.2.0",
+            body: { ...START, link_to: "http://localhost:3000/login" }
         }
     ])
 })
 
-test("with no origin, none is sent", async () => {
+test("Infra's refusals come back as its own error, as they are", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
-    const { infra, received } = fakeInfra({
-        status: 200,
-        body: {
-            email: "ada@example.com",
-            with_link: false,
-            expires_at: "2026-11-15T18:15:00.000Z",
-            test: null
-        }
-    })
-    await infra.startLogin({
-        email: "ada@example.com",
-        ip: "::1",
-        origin: null
-    })
-    expect(received[0]?.body).toEqual({ email: "ada@example.com", ip: "::1" })
-})
-
-test("Infra's limits come back as the app's refusals", async () => {
-    vi.spyOn(console, "info").mockImplementation(() => {})
-    const cases = [
+    const refusals = [
         {
-            answer: {
-                status: 429,
-                body: {
-                    error: "too-soon",
-                    message: "Ask again in 42 seconds.",
-                    retry_after: 42
-                }
-            },
-            refused: {
-                reason: "too-soon",
-                message: "Ask again in 42 seconds.",
-                retry_after: 42
+            status: 429,
+            error: {
+                reason: "rate-limited",
+                limit: "address",
+                retry_after: 42,
+                message: "Ask again in 42 seconds."
             }
         },
         {
-            answer: {
-                status: 429,
-                body: { error: "too-many", limit: "ip", retry_after: 1800 }
-            },
-            // An Infra from before every error said why gets the client's
-            // own words
-            refused: {
-                reason: "too-many",
-                limit: "ip",
-                retry_after: 1800,
-                message:
-                    "Infra has sent as many login emails as it sends in an hour."
-            }
-        },
-        {
-            answer: {
-                status: 502,
-                body: {
-                    error: "not-sent",
-                    message: "Resend refused it."
-                }
-            },
-            refused: { reason: "not-sent", message: "Resend refused it." }
+            status: 502,
+            error: { reason: "not-sent", message: "Resend refused it." }
         }
     ]
-    for (const { answer, refused } of cases) {
-        const { infra } = fakeInfra(answer)
-        expect(
-            await infra.startLogin({
-                email: "ada@example.com",
-                ip: "::1",
-                origin: null
-            })
-        ).toEqual({ ok: false, error: refused })
+    for (const { status, error } of refusals) {
+        const { infra } = fakeInfra({ status, body: { error } })
+        expect(await infra.startLogin(START)).toEqual({ ok: false, error })
     }
 })
 
-test("verifying sends the code or the token, and answers the email", async () => {
+test("verifying sends the code with its address, or the token, and answers whose it was", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { infra, received } = fakeInfra({
         status: 200,
-        body: { email: "ada@example.com" }
+        body: { channel: "email", address: "ada@example.com" }
     })
     const token = "a".repeat(43)
-    expect(
-        await infra.verifyLogin({ email: "ada@example.com", code: "123456" })
-    ).toEqual({ ok: true, data: { email: "ada@example.com" } })
-    expect(await infra.verifyLogin({ token })).toEqual({
+    const proof = {
+        channel: "email" as const,
+        address: "ada@example.com",
+        code: "123456"
+    }
+    const whose = {
         ok: true,
-        data: { email: "ada@example.com" }
-    })
-    expect(received.map((each) => each.body)).toEqual([
-        { email: "ada@example.com", code: "123456" },
-        { token }
-    ])
+        data: { channel: "email", address: "ada@example.com" }
+    }
+    expect(await infra.verifyLogin(proof)).toEqual(whose)
+    expect(await infra.verifyLogin({ token })).toEqual(whose)
+    expect(received.map((each) => each.body)).toEqual([proof, { token }])
 })
 
 test("a code Infra refuses says why", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
-    const cases = [
-        {
-            body: { error: "wrong-code", attempts_left: 3, message: "Not it." },
-            refused: {
-                reason: "wrong-code",
-                attempts_left: 3,
-                message: "Not it."
-            }
-        },
-        {
-            body: { error: "no-code", message: "Start again." },
-            refused: { reason: "no-code", message: "Start again." }
-        },
-        {
-            body: { error: "no-link" },
-            refused: {
-                reason: "no-link",
-                message: "That link has been used or has run out."
-            }
-        }
-    ]
-    for (const { body, refused } of cases) {
-        const { infra } = fakeInfra({ status: 400, body })
-        expect(
-            await infra.verifyLogin({
-                email: "ada@example.com",
-                code: "123456"
-            })
-        ).toEqual({ ok: false, error: refused })
+    for (const error of [
+        { reason: "wrong-code", attempts_left: 3, message: "Not it." },
+        { reason: "no-code", message: "Start again." },
+        { reason: "no-link", message: "Start again." }
+    ]) {
+        const { infra } = fakeInfra({ status: 400, body: { error } })
+        expect(await infra.verifyLogin({ token: "a".repeat(43) })).toEqual({
+            ok: false,
+            error
+        })
     }
 })
 
-test("a key Infra refuses is unavailable, with Infra's words for why, and logged", async () => {
+test("a refusal the app can't act on is unavailable, in Infra's words, and logged", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     const revoked = {
-        error: "revoked-key",
-        message: "This secret key was revoked on 2026-11-20."
+        error: {
+            reason: "revoked-key",
+            message: "This secret key was revoked on 2026-11-20."
+        }
     }
     const { infra } = fakeInfra({ status: 401, body: revoked })
-    expect(
-        await infra.startLogin({
-            email: "ada@example.com",
-            ip: "::1",
-            origin: null
-        })
-    ).toEqual({
+    expect(await infra.startLogin(START)).toEqual({
         ok: false,
         error: {
             reason: "unavailable",
@@ -217,79 +154,31 @@ test("a key Infra refuses is unavailable, with Infra's words for why, and logged
         }
     })
     expect(logged).toHaveBeenCalledWith(
-        "Infra answered what the client doesn't expect",
+        "Infra refused a call the app can't act on",
         expect.objectContaining({ status: 401, answer: revoked })
     )
-
-    // From an Infra that gave no words, the client says where the key goes
-    const { infra: older } = fakeInfra({
-        status: 401,
-        body: { error: "revoked-key" }
-    })
-    const refused = await older.verifyLogin({ token: "a".repeat(43) })
-    expect(refused.ok).toBe(false)
-    expect(!refused.ok && refused.error.message).toContain(
-        "INFRA_SECRET_KEY on the app's service in Railway"
-    )
 })
 
-test("an error this version doesn't know comes with Infra's words, like a call it retired", async () => {
-    vi.spyOn(console, "info").mockImplementation(() => {})
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    const { infra } = fakeInfra({
-        status: 410,
-        body: {
-            error: "retired",
-            message: "Infra's login moved: ask Claude to update the app."
-        }
-    })
-    expect(
-        await infra.startLogin({
-            email: "ada@example.com",
-            ip: "::1",
-            origin: null
-        })
-    ).toEqual({
-        ok: false,
-        error: {
-            reason: "unavailable",
-            message: "Infra's login moved: ask Claude to update the app."
-        }
-    })
-
-    // Without words, it says the package may be behind Infra
-    const { infra: silent } = fakeInfra({
-        status: 418,
-        body: { error: "teapot" }
-    })
-    const refused = await silent.verifyLogin({ token: "a".repeat(43) })
-    expect(!refused.ok && refused.error.message).toBe(
-        "Infra answered /login/verify with 418 teapot, which this version of @superforge/infra doesn't know. Ask Claude to update @superforge/infra in the app."
-    )
-})
-
-test("every refusal is logged with Infra's words", async () => {
+test("every refusal is logged with its reason and Infra's words", async () => {
     const logged = vi.spyOn(console, "info").mockImplementation(() => {})
     const { infra } = fakeInfra({
         status: 400,
-        body: { error: "no-code", message: "Start again." }
+        body: { error: { reason: "no-code", message: "Start again." } }
     })
-    await infra.verifyLogin({ email: "ada@example.com", code: "123456" })
+    await infra.verifyLogin({ token: "a".repeat(43) })
     expect(logged).toHaveBeenCalledWith("Infra refused a call", {
         call: "/login/verify",
         status: 400,
-        error: "no-code",
+        reason: "no-code",
         message: "Start again."
     })
 })
 
-test("an answer that isn't Infra's shape is unavailable, and logged", async () => {
+test("an answer outside the contract is unavailable, and logged", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { infra } = fakeInfra({ status: 200, body: { email: 42 } })
-    expect(
-        await infra.verifyLogin({ email: "ada@example.com", code: "123456" })
-    ).toEqual({
+    const { infra } = fakeInfra({ status: 200, body: { address: 42 } })
+    expect(await infra.verifyLogin({ token: "a".repeat(43) })).toEqual({
         ok: false,
         error: {
             reason: "unavailable",
@@ -312,13 +201,7 @@ test("an Infra that doesn't answer, or answers without JSON, is unavailable", as
             throw new TypeError("fetch failed")
         }
     })
-    expect(
-        await down.startLogin({
-            email: "ada@example.com",
-            ip: "::1",
-            origin: null
-        })
-    ).toEqual({
+    expect(await down.startLogin(START)).toEqual({
         ok: false,
         error: {
             reason: "unavailable",
@@ -347,10 +230,6 @@ test("an Infra that doesn't answer, or answers without JSON, is unavailable", as
             )
         }
     })
-    expect(logged).toHaveBeenCalledWith(
-        "Infra answered without JSON",
-        expect.objectContaining({ status: 502 })
-    )
 })
 
 const COMMENT: FiledComment = {
@@ -365,11 +244,12 @@ const COMMENT: FiledComment = {
         box: { x: 120, y: 1640, width: 180, height: 44 }
     },
     viewport: { width: 1440, height: 900 },
-    user: "5f0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b",
+    user_id: "5f0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b",
+    user_name: "Jess",
     user_agent: "Mozilla/5.0"
 }
 
-test("a comment goes to /v1/comments with the key, and answers its ID", async () => {
+test("a comment goes to /v1/comments with who filed it, and answers its ID", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { infra, received } = fakeInfra({
         status: 201,
@@ -382,88 +262,90 @@ test("a comment goes to /v1/comments with the key, and answers its ID", async ()
         data: { id: "c-1", created_at: new Date("2026-11-18T18:15:00.000Z") }
     })
     expect(received).toEqual([
-        { path: "/v1/comments", key: `Bearer ${KEY}`, body: COMMENT }
+        expect.objectContaining({ path: "/v1/comments", body: COMMENT })
     ])
 })
 
-test("a comment Infra refuses says why, and is logged as the app's mistake", async () => {
+test("a comment Infra refuses says what didn't fit, and is logged as the app's mistake", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { infra } = fakeInfra({
-        status: 400,
-        body: {
-            error: "invalid",
-            fields: ["element.tag"],
-            message: "element.tag didn't fit what this call takes."
-        }
-    })
-    const refused = {
+    const error = {
         reason: "invalid",
-        fields: ["element.tag"],
+        issues: [{ path: "element.tag", message: "Invalid string" }],
         message: "element.tag didn't fit what this call takes."
     }
-    expect(await infra.fileComment(COMMENT)).toEqual({
-        ok: false,
-        error: refused
-    })
+    const { infra } = fakeInfra({ status: 400, body: { error } })
+    expect(await infra.fileComment(COMMENT)).toEqual({ ok: false, error })
     expect(logged).toHaveBeenCalledWith("Infra refused a comment", {
         call: "/comments",
-        refused
+        refused: error
     })
 })
 
-test("a comment to an Infra that's down, or answers 200, is unavailable", async () => {
+test("the key's project, with its domains", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    for (const answer of [
-        { status: 503, body: { error: "unavailable" } },
-        { status: 200, body: { kept: 1 } },
-        { status: 401, body: { error: "revoked-key" } }
-    ]) {
-        const { infra } = fakeInfra(answer)
-        expect(await infra.fileComment(COMMENT)).toEqual({
-            ok: false,
-            error: { reason: "unavailable", message: expect.any(String) }
-        })
-    }
-})
-
-test("the key's project, and none of its domains from an Infra from before it answered them", async () => {
-    vi.spyOn(console, "info").mockImplementation(() => {})
-    const answer = (project: object) => {
-        const fake = new Hono().get("*", () =>
-            Response.json({ project, mode: "live" })
-        )
-        return infraClient({
-            key: KEY,
-            url: ADDRESS,
-            send: async (input, init) =>
-                fake.request(
-                    typeof input === "string" ? input : input.toString(),
-                    init
-                )
-        })
-    }
-    expect(
-        await answer({
-            id: "sf_project_1",
-            name: "VMD System",
-            domains: ["vmdsystem.com"]
-        }).project()
-    ).toEqual({
-        ok: true,
-        data: {
-            project: {
-                id: "sf_project_1",
-                name: "VMD System",
-                domains: ["vmdsystem.com"]
-            },
-            mode: "live"
-        }
-    })
-    const older = await answer({
+    const project = {
         id: "sf_project_1",
-        name: "VMD System"
-    }).project()
-    expect(older.ok && older.data.project.domains).toBeNull()
+        name: "VMD System",
+        domains: ["vmdsystem.com"]
+    }
+    const { infra, received } = fakeInfra({
+        status: 200,
+        body: { project, mode: "live" }
+    })
+    expect(await infra.project()).toEqual({
+        ok: true,
+        data: { project, mode: "live" }
+    })
+    expect(received[0]).toMatchObject({ method: "GET", path: "/v1/project" })
+})
+
+test("Claude's requests and connections go by the app's user ID", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const connection = {
+        id: "c-1",
+        user_id: "u-1",
+        client_name: "Claude",
+        scopes: ["read"],
+        resource: "https://vmdsystem.com/admin/mcp",
+        last_used_at: "2026-11-21T08:00:00.000Z",
+        created_at: "2026-11-20T15:00:00.000Z"
+    }
+    const { infra, received } = fakeInfra({
+        status: 200,
+        body: { connections: [connection] }
+    })
+    expect(await infra.agentConnections("u-1")).toEqual({
+        ok: true,
+        data: [
+            {
+                ...connection,
+                last_used_at: new Date(connection.last_used_at),
+                created_at: new Date(connection.created_at)
+            }
+        ]
+    })
+    expect(received[0]).toMatchObject({
+        method: "GET",
+        path: "/v1/agents/connections?user_id=u-1"
+    })
+
+    const allowed = fakeInfra({
+        status: 200,
+        body: { redirect_to: "https://claude.ai/api/mcp/auth_callback?code=x" }
+    })
+    await allowed.infra.allowAgent("r-1", { user_id: "u-1", scopes: ["read"] })
+    expect(allowed.received[0]).toMatchObject({
+        path: "/v1/agents/requests/r-1/allow",
+        body: { user_id: "u-1", scopes: ["read"] }
+    })
+
+    const missing = fakeInfra({
+        status: 404,
+        body: { error: { reason: "not-found", message: "No such request." } }
+    })
+    expect(await missing.infra.agentRequest("r-2")).toEqual({
+        ok: false,
+        error: { reason: "not-found", message: "No such request." }
+    })
 })

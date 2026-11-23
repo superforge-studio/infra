@@ -1,6 +1,6 @@
 {
     "name": "@superforge/infra",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "description": "Superforge Infra, the backend services Foundation and Skylevel apps run on, as an app's server calls it",
     "license": "MIT",
     "type": "module",
@@ -16,6 +16,10 @@
         ".": {
             "types": "./output/index.d.ts",
             "default": "./output/index.js"
+        },
+        "./contract": {
+            "types": "./output/contract/index.d.ts",
+            "default": "./output/contract/index.js"
         }
     },
     "files": [

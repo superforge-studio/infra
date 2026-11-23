@@ -4,6 +4,7 @@ import { parseEnv } from "node:util"
 import { z } from "zod"
 import { unavailableOAuth } from "./agents.js"
 import { INFRA_URL, infraClient } from "./client.js"
+import { APP_PATHS, type AppPaths } from "./contract/index.js"
 import type { Infra, InfraUnavailable } from "./infra.js"
 import { standInInfra, type WaitingLogin } from "./stand-in.js"
 
@@ -27,11 +28,13 @@ const SECRET_KEY = /^sf_secret_[0-9A-Za-z]{32}$/
 const TEST_KEY = /^sf_test_[0-9A-Za-z]{32}$/
 
 // What the server reads to reach Infra, by the variables' names: the
-// secret key Railway holds, a checkout's test key, and where Infra is, to
-// point a dev server at another one, like a Superforge checkout's own. A
-// dev server reads them from the checkout's `.env` too (`checkoutVariables`),
-// under whatever the shell sets. One set empty, as `.env.example` has them,
-// is unset.
+// secret key Railway holds, and a checkout's test key. A dev server reads
+// them from the checkout's `.env` too (`checkoutVariables`), under whatever
+// the shell sets, and only a dev server reads `INFRA_URL`, which points it
+// at another Infra while Infra itself is worked on, like a superforge
+// checkout's own: a build always calls Infra's own address, so no variable
+// can send its secret key, and every login, anywhere else. One set empty,
+// as `.env.example` has them, is unset.
 const unset_when_empty = (value: unknown) =>
     typeof value === "string" && value.trim() === "" ? undefined : value
 const infra_environment = z.object({
@@ -57,7 +60,8 @@ export function chooseInfra({
     development,
     environment,
     checkout,
-    domains = []
+    domains = [],
+    paths = APP_PATHS
 }: {
     // Whether this is a dev server rather than a build
     development: boolean
@@ -67,11 +71,14 @@ export function chooseInfra({
     checkout: string
     // The website's hosts, which the stand-in's project has as its domains
     domains?: string[]
+    // Where the app answers Claude's login, when not `APP_PATHS`
+    paths?: AppPaths
 }): InfraChoice {
+    // A build reads only the keys, whatever INFRA_URL says
     const parsed = infra_environment.safeParse(
         development
             ? { ...checkoutVariables(checkout), ...environment }
-            : environment
+            : { ...environment, INFRA_URL: undefined }
     )
     if (!parsed.success) {
         const names = parsed.error.issues.map((issue) => issue.path.join("."))
@@ -80,23 +87,21 @@ export function chooseInfra({
         })
         return {
             infra: unavailableInfra(
-                `Infra can't be reached: ${names.join(", ")} ${names.length === 1 ? "isn't" : "aren't"} set right${development ? " in the checkout's .env" : " on the app's service in Railway"}. INFRA_URL, when it's set, is an http or https address.`
+                `Infra can't be reached: ${names.join(", ")} ${names.length === 1 ? "isn't" : "aren't"} set right${development ? " in the checkout's .env" : " on the app's service in Railway"}.`
             ),
             using: "nothing"
         }
     }
     const { INFRA_SECRET_KEY } = parsed.data
-    // Without a slash at the end, since each call's path starts with one
-    const url = (parsed.data.INFRA_URL ?? INFRA_URL).replace(/\/+$/, "")
 
     if (!development) {
         if (
             INFRA_SECRET_KEY !== undefined &&
             SECRET_KEY.test(INFRA_SECRET_KEY)
         ) {
-            console.info("Infra: calling it with the secret key", { url })
+            console.info("Infra: calling it with the secret key")
             return {
-                infra: infraClient({ key: INFRA_SECRET_KEY, url }),
+                infra: infraClient({ key: INFRA_SECRET_KEY, paths }),
                 using: "secret key"
             }
         } else {
@@ -106,10 +111,15 @@ export function chooseInfra({
         }
     }
 
+    // Without a slash at the end, since each call's path starts with one
+    const url = (parsed.data.INFRA_URL ?? INFRA_URL).replace(/\/+$/, "")
     const test_key = parsed.data.INFRA_TEST_KEY
     if (test_key !== undefined && TEST_KEY.test(test_key)) {
         console.info("Infra: calling it with a test key", { url })
-        return { infra: infraClient({ key: test_key, url }), using: "test key" }
+        return {
+            infra: infraClient({ key: test_key, url, paths }),
+            using: "test key"
+        }
     } else {
         if (test_key !== undefined) {
             console.error(

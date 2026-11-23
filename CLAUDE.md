@@ -13,9 +13,11 @@ The templates' conventions hold here too (Foundation's
 
 - **American English**, everywhere: code, comments, docs, messages.
 - **Names in full**: `error`, never `err`; `context`, never `ctx`.
-- **Zod wherever data comes in**: every answer of Infra's is parsed in
-  `answers.ts` or `agents.ts` before an app sees it, and types come from
-  the schemas.
+- **Zod wherever data comes in**: every answer of Infra's is parsed with
+  its contract (`contract/`) before an app sees it, and types come from
+  the schemas. The contract is Infra's too: Infra checks what it's sent
+  with it, so a change to a call starts here, as a release, and Infra
+  takes it. Nothing in `contract/` imports anything of Node's.
 - **Results, not throws**, for what can fail in an expected way:
   `OperationResult` and `AsyncOperationResult` (`results.ts`), the same
   shape as the templates' global ones. `throw` is for bugs.

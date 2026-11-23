@@ -6,10 +6,7 @@
 // release that bumps one and not the other fails `pnpm check`.
 
 /** The package's version, as package.json says it */
-export const PACKAGE_VERSION = "0.1.1"
+export const PACKAGE_VERSION = "0.2.0"
 
-/** The header every call to Infra carries, its OAuth calls passed through included */
-export const CLIENT_HEADER = "Infra-Client"
-
-/** What it says: the package and its version, `@superforge/infra/0.1.1` */
+/** What it says: the package and its version, `@superforge/infra/0.2.0` */
 export const CLIENT = `@superforge/infra/${PACKAGE_VERSION}`

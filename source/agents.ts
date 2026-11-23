@@ -1,27 +1,32 @@
 import { createRemoteJWKSet, type JWTVerifyGetKey, jwtVerify } from "jose"
-import { z } from "zod"
 import {
     AGENT_SCOPES,
-    type AgentScope,
-    MCP_PATH,
-    SECOND
-} from "./primitives.js"
+    APP_ORIGIN_HEADER,
+    type AppPaths,
+    agent_authorized,
+    agent_claims,
+    authorize_refused,
+    CLIENT_HEADER,
+    infra_failure,
+    type KeyMode,
+    type OAuthCall
+} from "./contract/index.js"
+import type { AgentToken } from "./infra.js"
+import { SECOND } from "./primitives.js"
 import type { AsyncOperationResult } from "./results.js"
-import { CLIENT, CLIENT_HEADER } from "./version.js"
+import { CLIENT } from "./version.js"
 
 // Claude logging in to an app's own MCP, through Infra: Infra is the OAuth
 // server, and the app only checks the tokens it signs, with Infra's public
 // keys, never asking Infra (Infra's README, "Claude"). This is what of it
-// the client uses: where the app was reached, which every token is bound
-// to, passing Claude's OAuth calls through, what Infra answers about its
-// requests and connections, and checking a token.
+// the client does: where the app was reached, the server's metadata, the
+// OAuth calls Claude makes, passed on to Infra, and checking a token.
 
 /**
  * Where a request reached the app: `https://vmdsystem.com`, or plain http
  * on this computer, as a dev server is. Behind Railway's proxy a request's
  * own address says http though the browser's said https, so only the host
- * counts. Every token Claude holds is bound to it, as its issuer, and with
- * the MCP's path (`MCP_PATH`), its audience.
+ * counts. Every token Claude holds is bound to it, as its issuer.
  */
 export function requestOrigin(request_url: string) {
     const { host, hostname } = new URL(request_url)
@@ -31,34 +36,79 @@ export function requestOrigin(request_url: string) {
     return local ? `http://${host}` : `https://${host}`
 }
 
-/** The header Infra reads the app's origin from, on a call passed through */
-export const APP_ORIGIN_HEADER = "App-Origin"
+/**
+ * The OAuth server's metadata (RFC 8414), which Claude reads at the app's
+ * `/.well-known/oauth-authorization-server`: the app is the issuer, its
+ * own addresses the server's, and Infra's public keys the ones its tokens
+ * are signed with. It's the same for every app but for those, so the
+ * client builds it, with no call to Infra.
+ */
+export function oauthMetadata({
+    origin,
+    paths,
+    infra_url
+}: {
+    origin: string
+    paths: AppPaths
+    infra_url: string
+}) {
+    const oauth = `${origin}${paths.oauth}`
+    return {
+        issuer: origin,
+        authorization_endpoint: `${oauth}/authorize`,
+        token_endpoint: `${oauth}/token`,
+        registration_endpoint: `${oauth}/register`,
+        revocation_endpoint: `${oauth}/revoke`,
+        jwks_uri: new URL("/.well-known/jwks.json", new URL(infra_url).origin)
+            .href,
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        code_challenge_methods_supported: ["S256"],
+        token_endpoint_auth_methods_supported: ["none"],
+        revocation_endpoint_auth_methods_supported: ["none"],
+        scopes_supported: [...AGENT_SCOPES],
+        client_id_metadata_document_supported: true,
+        authorization_response_iss_parameter_supported: true
+    }
+}
 
-// What a call passed through may carry on, of the request Claude or the
-// browser sent: what the body is, and what Claude accepts back
+// What a call passed on may carry, of the request Claude or the browser
+// sent: what the body is, and what Claude accepts back
 const PASSED_HEADERS = ["accept", "content-type"]
 
 /**
- * Passes one of Claude's OAuth calls through to Infra's `/v1/oauth/…`
- * (`path`), with the app's key and origin, and answers Infra's answer as
- * it is: its status, its body, and where it sends the browser. The request
- * is Claude's or the browser's, unread.
+ * Answers one of Claude's OAuth calls to the app (`call`), its request
+ * unread:
+ *
+ * - `metadata`: built here (`oauthMetadata`)
+ * - `authorize`: Infra saves the request, then the browser goes to the
+ *   app's Allow page, `<paths.allow>/<request id>`, or back to Claude with
+ *   an error. One whose return address isn't Claude's is answered 400 in
+ *   plain words, never redirected, so the app is never an open redirect.
+ * - `token`, `register`, `revoke`: Infra's answer, as it is (RFC 6749's)
  */
-export async function passThrough({
+export async function passOAuth({
     url,
     key,
     send,
+    paths,
     request,
-    path,
+    call,
     origin
 }: {
     url: string
     key: string
     send: typeof fetch
+    paths: AppPaths
     request: Request
-    path: string
+    call: OAuthCall | "metadata"
     origin: string
-}) {
+}): Promise<Response> {
+    if (call === "metadata") {
+        return Response.json(oauthMetadata({ origin, paths, infra_url: url }), {
+            headers: { "Cache-Control": "no-store" }
+        })
+    }
     const { search } = new URL(request.url)
     const headers = new Headers({
         Authorization: `Bearer ${key}`,
@@ -75,113 +125,94 @@ export async function passThrough({
         request.method === "GET" || request.method === "HEAD"
             ? undefined
             : await request.text()
+    const path = `/agents/oauth/${call}`
+    let answer: Response
     try {
-        const answer = await send(`${url}/oauth${path}${search}`, {
+        answer = await send(`${url}${path}${search}`, {
             method: request.method,
             headers,
             body,
             redirect: "manual",
             signal: AbortSignal.timeout(15 * SECOND)
         })
-        console.info("Infra answered", {
-            call: `/oauth${path}`,
-            status: answer.status
-        })
-        const passed = new Headers({ "Cache-Control": "no-store" })
-        for (const name of ["content-type", "location"]) {
-            const value = answer.headers.get(name)
-            if (value !== null) {
-                passed.set(name, value)
-            }
-        }
-        return new Response(await answer.arrayBuffer(), {
-            status: answer.status,
-            headers: passed
-        })
     } catch (error) {
-        console.error("Infra didn't answer", { call: `/oauth${path}`, error })
+        console.error("Infra didn't answer", { call: path, error })
         return unavailableOAuth(
             "Infra didn't answer this app's call, so Claude can't log in. It may be down; trying again in a few minutes may work."
         )
     }
+    console.info("Infra answered", { call: path, status: answer.status })
+    if (call === "authorize") {
+        return await authorized(answer, origin, paths)
+    }
+    const passed = new Headers({ "Cache-Control": "no-store" })
+    const type = answer.headers.get("content-type")
+    if (type !== null) {
+        passed.set("content-type", type)
+    }
+    return new Response(await answer.arrayBuffer(), {
+        status: answer.status,
+        headers: passed
+    })
+}
+
+// Where the browser goes from Claude's authorize request, by what Infra
+// answered: the app's Allow page, back to Claude, or nowhere, with why
+async function authorized(answer: Response, origin: string, paths: AppPaths) {
+    const json: unknown = await answer.json().catch((error: unknown) => {
+        console.error("Infra's authorize answer isn't JSON", {
+            status: answer.status,
+            error
+        })
+        return null
+    })
+    const made = agent_authorized.safeParse(json)
+    if (answer.status === 200 && made.success) {
+        const to =
+            "request" in made.data
+                ? `${origin}${paths.allow}/${made.data.request.id}`
+                : made.data.redirect_to
+        return new Response(null, {
+            status: 302,
+            headers: { Location: to, "Cache-Control": "no-store" }
+        })
+    }
+    const refused = authorize_refused.safeParse(json)
+    if (refused.success) {
+        console.warn("Claude's authorize request refused", {
+            reason: refused.data.reason
+        })
+        return new Response(refused.data.message, {
+            status: 400,
+            headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Cache-Control": "no-store"
+            }
+        })
+    }
+    const failed = infra_failure.safeParse(json)
+    console.error("Infra's authorize answer doesn't fit", {
+        status: answer.status,
+        answer: json
+    })
+    return unavailableOAuth(
+        failed.success
+            ? failed.data.error.message
+            : `Infra answered Claude's authorize request with ${answer.status}, in a shape this version of @superforge/infra can't read.`
+    )
 }
 
 /**
- * What a call passed through answers when Infra can't be asked, as RFC
- * 6749 has it, so Claude says why login isn't working rather than looping:
- * `message`, which Claude shows, as `error_description`
+ * What one of Claude's OAuth calls answers when Infra can't be asked, as
+ * RFC 6749 has it, so Claude says why login isn't working rather than
+ * looping: why, as `error_description`, which Claude shows
  */
 export function unavailableOAuth(message: string) {
     return Response.json(
-        {
-            error: "temporarily_unavailable",
-            error_description: message,
-            message
-        },
+        { error: "temporarily_unavailable", error_description: message },
         { status: 503, headers: { "Cache-Control": "no-store" } }
     )
 }
-
-// What Infra answers about Claude's requests and connections (its README,
-// "Claude"), as the app reads it
-
-export const agent_request = z.object({
-    request: z.object({
-        id: z.string(),
-        client_name: z.string(),
-        scopes: z.array(z.enum(AGENT_SCOPES)),
-        expires_at: z.coerce.date()
-    })
-})
-
-export const agent_redirect = z.object({ redirect_to: z.url() })
-
-export const agent_connections = z.object({
-    connections: z.array(
-        z.object({
-            id: z.string(),
-            email: z.string(),
-            client_name: z.string(),
-            scopes: z.array(z.enum(AGENT_SCOPES)),
-            last_used_at: z.coerce.date(),
-            created_at: z.coerce.date()
-        })
-    )
-})
-
-export const agent_ended = z.object({ ended: z.number().int() })
-
-/** Why Infra refused a call about a request or a connection, in its words */
-export const agent_refused = z.object({
-    error: z.enum(["not-found", "not-asked"]),
-    message: z
-        .string()
-        .catch("Infra has no such request or connection for this project.")
-})
-
-/** Someone's connection, as the Connected list shows it */
-export type AgentConnection = z.output<
-    typeof agent_connections
->["connections"][number]
-
-/** What the app learns from a token Claude brings, once it's checked */
-export type AgentToken = {
-    /** Whom Claude acts as: the app checks them against its team */
-    email: string
-    /** What they let Claude do */
-    scopes: AgentScope[]
-    /** Which of their connections it is, to end it */
-    connection_id: string
-}
-
-// The claims Infra's tokens carry beyond the standard ones (Infra's README)
-const agent_claims = z.object({
-    sub: z.string(),
-    scope: z.string(),
-    project: z.string(),
-    mode: z.enum(["live", "test"]),
-    connection: z.string()
-})
 
 /** Where a token's signature is checked: Infra's published public keys */
 export function infraKeys(url: string): JWTVerifyGetKey {
@@ -192,20 +223,24 @@ export function infraKeys(url: string): JWTVerifyGetKey {
 }
 
 /**
- * Checks a token Claude brings, as Infra's README says to: Infra signed it,
- * for this app's origin and its MCP (`MCP_PATH`), for this project in the key's
- * mode, and it hasn't run out. `project` is the app's own project ID and
- * mode, as `GET /v1/project` answers them.
+ * Checks a token Claude brings, as Infra's README says to: Infra signed
+ * it, for this app's `origin`, for `resource`, the address it was brought
+ * to, for this project in the key's mode, and it hasn't run out
  */
 export async function checkToken(
     keys: JWTVerifyGetKey,
     token: string,
-    expected: { origin: string; project: string; mode: "live" | "test" }
+    expected: {
+        origin: string
+        resource: string
+        project: string
+        mode: KeyMode
+    }
 ): AsyncOperationResult<AgentToken, "invalid-token"> {
     try {
         const { payload } = await jwtVerify(token, keys, {
             issuer: expected.origin,
-            audience: `${expected.origin}${MCP_PATH}`,
+            audience: expected.resource,
             algorithms: ["ES256"]
         })
         const claims = agent_claims.safeParse(payload)
@@ -223,7 +258,7 @@ export async function checkToken(
             return {
                 ok: true,
                 data: {
-                    email: claims.data.sub,
+                    user_id: claims.data.sub,
                     scopes: AGENT_SCOPES.filter((scope) =>
                         said.includes(scope)
                     ),

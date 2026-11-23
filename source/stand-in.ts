@@ -5,19 +5,26 @@ import {
     type JWTVerifyGetKey,
     SignJWT
 } from "jose"
+import { z } from "zod"
 import { checkToken, unavailableOAuth } from "./agents.js"
-import { COMMENT_BODY_LIMIT, filed_comment } from "./comments.js"
+import {
+    type AgentScope,
+    COMMENT_BODY_LIMIT,
+    filed_comment,
+    login_start,
+    login_verify
+} from "./contract/index.js"
 import type { Infra } from "./infra.js"
-import { type AgentScope, MCP_PATH, MINUTE, randomToken } from "./primitives.js"
+import { MINUTE, randomToken } from "./primitives.js"
 
 // How Infra treats a code: it works for 15 minutes and five tries, and a
 // new one for the same address replaces it, link and all
 const LIFETIME = 15 * MINUTE
 const ATTEMPTS = 5
 
-/** A login the stand-in sent, waiting to be verified. */
+/** A login the stand-in sent, waiting to be verified, by its address */
 export type WaitingLogin = {
-    email: string
+    address: string
     code: string
     token: string
     attempts: number
@@ -28,14 +35,14 @@ export type WaitingLogin = {
  * Infra's test mode, in memory: what a test key gets from the real one,
  * with no key and no network. Starting a login sends nothing and answers
  * the code and the link, and verifying checks them as Infra does: each
- * works once, for 15 minutes, and a code for five tries. No limits apply,
- * as none do to a test key. A comment is checked as Infra checks it, and
- * answered an ID, though nothing keeps it, where Infra keeps a test key's.
- * Its project has the `domains` it's given, an app's website's. An app's
- * tests always use it, so they never reach Infra, and so does a dev server
- * with no test key (choose.ts). A build never does: anyone could log in
- * as anyone, since the page shows the code. Its refusals say what Infra's
- * say.
+ * works once, for 15 minutes, a code for five tries, and using either
+ * spends both. No limits apply, as none do to a test key. A request is
+ * checked with Infra's own contract, as Infra checks it, and a comment is
+ * answered an ID, though nothing keeps it. Its project has the `domains`
+ * it's given, an app's website's. An app's tests always use it, so they
+ * never reach Infra, and so does a dev server with no test key
+ * (choose.ts). A build never does: anyone could log in as anyone, since
+ * the page shows the code. Its refusals say what Infra's say.
  *
  * `waiting` is where it keeps what it sent, by address: its own, or one
  * that outlives a dev server's reloads. With `logs`, as a dev server has
@@ -56,7 +63,7 @@ export function standInInfra({
                 ok: true,
                 data: {
                     project: {
-                        id: "sf_project_stand_in",
+                        id: STAND_IN_PROJECT,
                         name: "Infra's stand-in",
                         domains
                     },
@@ -65,33 +72,44 @@ export function standInInfra({
             }
         },
 
-        async startLogin({ email, origin }) {
+        async startLogin(request) {
+            const parsed = login_start.safeParse(request)
+            if (!parsed.success) {
+                return misfit(parsed.error)
+            }
+            const { channel, address, link_to } = parsed.data
             const sent: WaitingLogin = {
-                email,
+                address,
                 code: randomCode(),
                 token: randomToken(),
                 attempts: 0,
                 expires_at: Date.now() + LIFETIME
             }
-            waiting.set(email, sent)
+            waiting.set(address, sent)
             return {
                 ok: true,
                 data: {
-                    email,
-                    with_link: origin !== null,
+                    channel,
+                    address,
+                    with_link: link_to !== undefined,
                     expires_at: new Date(sent.expires_at),
                     test: {
                         code: sent.code,
                         link:
-                            origin === null
+                            link_to === undefined
                                 ? null
-                                : `${origin}/login#${sent.token}`
+                                : `${link_to}#${sent.token}`
                     }
                 }
             }
         },
 
-        async verifyLogin(proof) {
+        async verifyLogin(given) {
+            const parsed = login_verify.safeParse(given)
+            if (!parsed.success) {
+                return misfit(parsed.error)
+            }
+            const proof = parsed.data
             if ("token" in proof) {
                 const sent = [...waiting.values()].find(
                     (each) => each.token === proof.token
@@ -99,12 +117,15 @@ export function standInInfra({
                 if (sent === undefined || sent.expires_at <= Date.now()) {
                     return { ok: false, error: NO_LINK }
                 } else {
-                    waiting.delete(sent.email)
-                    return { ok: true, data: { email: sent.email } }
+                    waiting.delete(sent.address)
+                    return {
+                        ok: true,
+                        data: { channel: "email", address: sent.address }
+                    }
                 }
             }
 
-            const sent = waiting.get(proof.email)
+            const sent = waiting.get(proof.address)
             if (
                 sent === undefined ||
                 sent.expires_at <= Date.now() ||
@@ -115,8 +136,11 @@ export function standInInfra({
             // Each guess counts, the right one too, as Infra counts them
             sent.attempts += 1
             if (sent.code === proof.code) {
-                waiting.delete(sent.email)
-                return { ok: true, data: { email: sent.email } }
+                waiting.delete(sent.address)
+                return {
+                    ok: true,
+                    data: { channel: proof.channel, address: sent.address }
+                }
             } else if (sent.attempts < ATTEMPTS) {
                 const left = ATTEMPTS - sent.attempts
                 return {
@@ -124,7 +148,7 @@ export function standInInfra({
                     error: {
                         reason: "wrong-code",
                         attempts_left: left,
-                        message: `That isn't the code Infra emailed this address. It can be tried ${left === 1 ? "once more" : `${left} more times`}.`
+                        message: `That isn't the code Infra sent this address. It can be tried ${left === 1 ? "once more" : `${left} more times`}.`
                     }
                 }
             } else {
@@ -148,16 +172,17 @@ export function standInInfra({
             }
             const checked = filed_comment.safeParse(comment)
             if (!checked.success) {
-                // The fields that failed, as Infra names them
-                const fields = checked.error.issues.map((issue) =>
-                    issue.path.join(".")
-                )
+                // What didn't fit, as Infra says it
+                const issues = checked.error.issues.map((issue) => ({
+                    path: issue.path.map(String).join("."),
+                    message: issue.message
+                }))
                 return {
                     ok: false,
                     error: {
                         reason: "invalid",
-                        fields,
-                        message: `${fields.join(", ")} didn't fit what this call takes.`
+                        issues,
+                        message: `${issues.map((issue) => issue.path).join(", ")} didn't fit what this call takes.`
                     }
                 }
             }
@@ -201,7 +226,7 @@ export function standInInfra({
             return {
                 ok: false,
                 error: {
-                    error: "not-found",
+                    reason: "not-found",
                     message:
                         "Claude has no connection here with this ID: the stand-in connects no one."
                 }
@@ -210,13 +235,27 @@ export function standInInfra({
         async endAgentConnections() {
             return { ok: true, data: 0 }
         },
-        async checkAgentToken(token, origin) {
+        async checkAgentToken(token, expected) {
             const { public_keys } = await standInKeys()
             return await checkToken(public_keys, token, {
-                origin,
+                ...expected,
                 project: STAND_IN_PROJECT,
                 mode: "test"
             })
+        }
+    }
+}
+
+// A request that doesn't fit Infra's contract: Infra answers it 400
+// `invalid`, which the client reads as unavailable, since it's a bug in
+// the app, with the fields that didn't fit
+function misfit(error: z.ZodError) {
+    const fields = error.issues.map((issue) => issue.path.map(String).join("."))
+    return {
+        ok: false as const,
+        error: {
+            reason: "unavailable" as const,
+            message: `${fields.join(", ")} didn't fit what this call takes: a bug in the app.`
         }
     }
 }
@@ -231,7 +270,7 @@ const NO_LINK = {
     message: `That link has been used, ran out after ${LIFETIME / MINUTE} minutes, or isn't this project's. Start a new login.`
 }
 const NO_REQUEST = {
-    error: "not-found" as const,
+    reason: "not-found" as const,
     message:
         "No request of Claude's is waiting here: the stand-in logs no one in. Set INFRA_TEST_KEY to connect Claude to a dev server."
 }
@@ -253,17 +292,20 @@ function standInKeys() {
 }
 
 /**
- * A token as Infra signs one, for a test to call the API as Claude does:
- * acting as `email`, with `scopes`, for the app at `origin` (the tests'
- * own is `http://localhost`), which the stand-in's `checkAgentToken` takes
+ * A token as Infra signs one, for a test to call the app as Claude does:
+ * acting as `user_id`, with `scopes`, for the app at `origin` (the tests'
+ * own is `http://localhost`) and the address `resource`, its MCP's, which
+ * the stand-in's `checkAgentToken` takes
  */
 export async function standInAgentToken({
-    email,
+    user_id,
+    resource,
     scopes = ["read", "act"],
     origin = "http://localhost",
     expires_in = "10m"
 }: {
-    email: string
+    user_id: string
+    resource: string
     scopes?: AgentScope[]
     origin?: string
     expires_in?: string
@@ -277,8 +319,8 @@ export async function standInAgentToken({
     })
         .setProtectedHeader({ alg: "ES256", kid: "stand-in", typ: "at+jwt" })
         .setIssuer(origin)
-        .setAudience(`${origin}${MCP_PATH}`)
-        .setSubject(email)
+        .setAudience(z.url().parse(resource))
+        .setSubject(user_id)
         .setIssuedAt()
         .setExpirationTime(expires_in)
         .sign(signing)

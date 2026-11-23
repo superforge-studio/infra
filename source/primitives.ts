@@ -13,13 +13,3 @@ export function randomToken() {
         .replaceAll("/", "_")
         .replaceAll("=", "")
 }
-
-/** What someone on an app's team can let Claude do through its MCP */
-export const AGENT_SCOPES = ["read", "act"] as const
-export type AgentScope = (typeof AGENT_SCOPES)[number]
-
-/**
- * Where an app's MCP answers, which Infra logs Claude in to: the admin's,
- * for the app's own team. Every token Claude holds is for it.
- */
-export const MCP_PATH = "/admin/mcp"

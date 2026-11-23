@@ -33,9 +33,10 @@ const { infra } = chooseInfra({
 })
 
 const started = await infra.startLogin({
-    email: "ada@example.com",
+    channel: "email",
+    address: "ada@example.com",
     ip: visitor_ip,
-    origin: "https://vmdsystem.com"
+    link_to: "https://vmdsystem.com/login"
 })
 if (!started.ok) {
     console.warn("Login didn't start", started.error)
@@ -60,8 +61,11 @@ nor takes a test key, which sends no email; a dev server never takes a
 secret key, so it can't email real people. A dev server reads its test key
 from the checkout's `.env` too, and a git worktree with no `.env` of its
 own reads its main checkout's, so the key is set once per computer.
-`INFRA_URL` points the server at another Infra, like a superforge
-checkout's own dev server (`http://infra.localhost:3002/v1`).
+Only a dev server reads `INFRA_URL`, which points it at another Infra,
+like a superforge checkout's own (`http://infra.localhost:3002/v1`),
+while Infra itself is worked on: a build always calls Infra's own
+address, so no variable can send its secret key, or anyone's login,
+anywhere else.
 
 ### The stand-in, for tests
 
@@ -74,11 +78,12 @@ never reach Infra.
 
 ## When something goes wrong
 
-Every refusal carries `message`: what went wrong and what fixes it, in
-plain words, for whoever runs the app and their agent. It's Infra's own
-when Infra said why (its README, "Errors"), and the package's when it
-couldn't ask, so an app can show its team why login isn't working instead
-of a shrug:
+Every refusal is Infra's own `error`, as it answered it, in the shape a
+template's API answers too: `reason`, for code to branch on, `message`,
+what went wrong and what fixes it in plain words, and any fields the call
+adds, like `retry_after`. Infra's contract has every reason
+(`INFRA_ERRORS`). When the package couldn't ask Infra, it says why in
+the same shape:
 
 ```ts
 {
@@ -87,16 +92,13 @@ of a shrug:
 }
 ```
 
-- **A refusal the app handles** (`too-soon`, `wrong-code`, `no-link`…) has
-  its `reason`, its fields and Infra's `message`.
+- **A refusal the app handles** (`rate-limited`, `wrong-code`,
+  `no-link`…) is Infra's `error` as it is.
 - **`unavailable`** is everything else: no key in a build, a key Infra
   refused, an Infra that didn't answer or answered something that isn't
-  JSON, a success this version can't read, or an error it doesn't know,
-  like a call Infra retired. Its `message` says which, so an app on an
-  older version of this package still says what to do when Infra changes
-  under it.
+  JSON, or an answer outside the contract. Its `message` says which.
 - **Every answer is logged** with its call and status, and every refusal
-  with its `error` and `message` (`Infra refused a call`), so an app's
+  with its `reason` and `message` (`Infra refused a call`), so an app's
   logs say why without anyone reproducing it.
 
 A message is for a person: it can be reworded any time, so code branches on
@@ -129,9 +131,12 @@ first: a staged 0.1.0 from a checkout signed in with `npm login`, which
 was never approved, since 0.1.1 replaced it. 0.1.1 was the first CI
 published.
 
-Infra keeps answering the versions apps are on: a change to a call is
-additive, and a call Infra retires answers 410 `retired` with a message
-saying what to do, which every version shows its team.
+From v1 on, Infra keeps answering every version apps are on, the way
+Stripe does: one implementation, of the latest contract, and an adapter
+for each breaking change, which turns an older client's request into
+today's and today's answer back into the one it knows, by the version in
+`Infra-Client`. Until v1, Infra keeps none: an app takes the latest
+release.
 
 ## Working on it
 
@@ -146,16 +151,22 @@ folder>`), and back to the released version before its PR: a `link:` is
 this computer's alone, and CI can't install it.
 
 - `source/index.ts`: everything the package exports.
+- `source/contract/`: Infra's contract, exported on its own at
+  `@superforge/infra/contract`, with nothing of Node's: every call's
+  request and answer as zod schemas, which Infra checks what it's sent
+  with, and every reason it refuses one (`errors.ts`), a file per area:
+  `login.ts`, `comments.ts`, `agents.ts`, `project.ts` and `people.ts`
+  (`user_id`, the app's ID for one of its people).
 - `source/infra.ts`: `Infra`, what an app asks of it, and its results.
 - `source/client.ts`: Infra over HTTP with a project's key, its answers
-  parsed and every one logged. No call is retried: a second start sends a
-  second email, and a comment sent again is kept twice.
-- `source/answers.ts`: what Infra answers, as zod schemas, which the types
-  come from.
+  parsed with the contract and every one logged. No call is retried: a
+  second start sends a second message, and a comment sent again is kept
+  twice.
 - `source/agents.ts`: Claude's login: where a request reached the app,
-  passing Claude's OAuth calls through, what Infra answers about requests
-  and connections, and checking a token Infra signed with its public keys.
-- `source/comments.ts`: what Infra takes of a toolbar's comment.
+  the OAuth server's metadata, built here, Claude's other OAuth calls,
+  passed on to Infra, the authorize request sending the browser to the
+  app's Allow page, and checking a token Infra signed with its public
+  keys.
 - `source/stand-in.ts`: the stand-in, and `standInAgentToken`.
 - `source/choose.ts`: which Infra a server calls, and why when it's
   none.

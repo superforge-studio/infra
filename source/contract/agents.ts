@@ -49,8 +49,8 @@ export const agent_authorized = z.union([
 
 /** Why authorize sends nothing back to Claude: answered as plain words */
 export const authorize_refused = z.union([
-    refusal("unknown-client"),
-    refusal("unknown-origin"),
+    refusal("unknown-client", {}),
+    refusal("unknown-origin", {}),
     invalid_refusal
 ])
 
@@ -103,7 +103,10 @@ export const agent_connections = z.object({
 export const agent_ended = z.object({ ended: z.number().int() })
 
 /** Why Infra refused a call about a request or a connection */
-export const agent_refused = z.union([not_found_refusal, refusal("not-asked")])
+export const agent_refused = z.union([
+    not_found_refusal,
+    refusal("not-asked", {})
+])
 export type AgentRefused = z.output<typeof agent_refused>
 
 /**

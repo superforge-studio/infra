@@ -84,7 +84,7 @@ export const start_refused = z.union([
         retry_after: z.number()
     }),
     // The message didn't go out, and nothing was counted
-    refusal("not-sent")
+    refusal("not-sent", {})
 ])
 export type StartRefused = z.output<typeof start_refused>
 
@@ -108,7 +108,7 @@ export type VerifiedLogin = z.output<typeof verified_login>
 /** Why `login/verify` didn't log them in */
 export const verify_refused = z.union([
     refusal("wrong-code", { attempts_left: z.number() }),
-    refusal("no-code"),
-    refusal("no-link")
+    refusal("no-code", {}),
+    refusal("no-link", {})
 ])
 export type VerifyRefused = z.output<typeof verify_refused>

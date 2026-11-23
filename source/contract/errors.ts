@@ -53,19 +53,18 @@ export const infra_failure = z.object({
 
 /**
  * One kind of refusal, as a call answers it: its `reason`, its `message`,
- * and the fields it adds, read as the `error` alone
+ * and the fields it adds (`details`, `{}` for none), read as the `error`
+ * alone
  */
 export function refusal<
     Reason extends InfraErrorReason,
-    Details extends z.ZodRawShape = Record<never, never>
->(reason: Reason, details?: Details) {
+    Details extends z.ZodRawShape
+>(reason: Reason, details: Details) {
     return z
         .object({
-            error: z.object({
-                reason: z.literal(reason),
-                message: z.string(),
-                ...details
-            })
+            error: z
+                .object({ reason: z.literal(reason), message: z.string() })
+                .extend(details)
         })
         .transform((body) => body.error)
 }
@@ -79,4 +78,4 @@ export const invalid_refusal = refusal("invalid", {
 export const too_large_refusal = refusal("too-large", { limit: z.number() })
 
 /** `not-found` */
-export const not_found_refusal = refusal("not-found")
+export const not_found_refusal = refusal("not-found", {})

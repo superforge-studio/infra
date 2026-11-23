@@ -7,6 +7,7 @@ import {
     SECOND
 } from "./primitives.js"
 import type { AsyncOperationResult } from "./results.js"
+import { CLIENT, CLIENT_HEADER } from "./version.js"
 
 // Claude logging in to an app's own MCP, through Infra: Infra is the OAuth
 // server, and the app only checks the tokens it signs, with Infra's public
@@ -61,7 +62,8 @@ export async function passThrough({
     const { search } = new URL(request.url)
     const headers = new Headers({
         Authorization: `Bearer ${key}`,
-        [APP_ORIGIN_HEADER]: origin
+        [APP_ORIGIN_HEADER]: origin,
+        [CLIENT_HEADER]: CLIENT
     })
     for (const name of PASSED_HEADERS) {
         const value = request.headers.get(name)

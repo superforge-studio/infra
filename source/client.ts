@@ -22,6 +22,7 @@ import {
 import type { AgentRefused, Infra, InfraUnavailable } from "./infra.js"
 import { SECOND } from "./primitives.js"
 import type { AsyncOperationResult } from "./results.js"
+import { CLIENT, CLIENT_HEADER } from "./version.js"
 
 /**
  * Infra's API, which a project's keys call. A server can be pointed at
@@ -43,9 +44,11 @@ type Answer = { status: number; json: unknown }
  * code spent, and a comment sent again is kept twice); the visitor asks
  * again instead. `send` is `fetch`, or a test's own.
  *
- * Every answer is logged with its call and status, and a refusal with its
- * `error` and Infra's `message`, which says what went wrong and what fixes
- * it (Infra's README, "Errors"), so an app's logs say why a call failed.
+ * Every call says which version of the package made it (`Infra-Client`,
+ * version.ts). Every answer is logged with its call and status, and a
+ * refusal with its `error` and Infra's `message`, which says what went
+ * wrong and what fixes it (Infra's README, "Errors"), so an app's logs say
+ * why a call failed.
  */
 export function infraClient({
     key,
@@ -67,9 +70,13 @@ export function infraClient({
             method,
             headers:
                 body === undefined
-                    ? { Authorization: `Bearer ${key}` }
+                    ? {
+                          Authorization: `Bearer ${key}`,
+                          [CLIENT_HEADER]: CLIENT
+                      }
                     : {
                           Authorization: `Bearer ${key}`,
+                          [CLIENT_HEADER]: CLIENT,
                           "Content-Type": "application/json"
                       },
             body: body === undefined ? undefined : JSON.stringify(body),

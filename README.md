@@ -103,6 +103,14 @@ A message is for a person: it can be reworded any time, so code branches on
 `reason`, never on `message`. Show it to the app's own team; a visitor
 should only learn that login isn't working.
 
+## What every call tells Infra
+
+Every call, Claude's OAuth calls passed through included, carries
+`Infra-Client: @superforge/infra/<version>`, so Infra knows which version
+each app is on, and can say when one's out of date (`PACKAGE_VERSION` and
+`CLIENT_HEADER` are exported). The version is written in
+`source/version.ts`, which a test checks against `package.json`.
+
 ## Releases
 
 Each release is a version on npm, `@superforge/infra@x.y.z`, published by

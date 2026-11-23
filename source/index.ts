@@ -42,3 +42,5 @@ export {
     standInInfra,
     type WaitingLogin
 } from "./stand-in.js"
+// Which version this is, which every call tells Infra in `Infra-Client`
+export { CLIENT_HEADER, PACKAGE_VERSION } from "./version.js"

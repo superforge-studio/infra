@@ -113,6 +113,16 @@ make code changes for. Every PR is a release: it bumps the version, with
 its line at the top of `CHANGELOG.md`. An app takes one by bumping its
 dependency (Dependabot opens a PR a month), never by copying code.
 
+CI signs in to npm with trusted publishing: npm trusts this repository's
+`ci.yml` to publish the package (the package's settings on npmjs.com,
+"Trusted publisher"), so no npm token is kept anywhere. npm only lets a
+package that exists trust a workflow, so 0.1.0 went out by hand, from a
+checkout signed in with `npm login`:
+
+```bash
+pnpm install && pnpm check && npm publish --access public
+```
+
 Infra keeps answering the versions apps are on: a change to a call is
 additive, and a call Infra retires answers 410 `retired` with a message
 saying what to do, which every version shows its team.

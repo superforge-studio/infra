@@ -7,10 +7,14 @@
 # `publish` puts each release on npm once it reaches main, after `check`. A
 # release is the push that changes the version in package.json (README.md,
 # "Releases"), so it publishes only a version npm doesn't have yet, with
-# provenance, which links the published package to this run. It needs one
-# repository secret, NPM_TOKEN, a granular token that can publish
-# @superforge/infra; until it's set, the job skips with a notice rather
-# than failing.
+# provenance, which links the published package to this run. It signs in
+# to npm with trusted publishing (OIDC): npm trusts this repository's
+# `ci.yml` to publish @superforge/infra, set on the package's settings page
+# on npmjs.com, so no token is kept anywhere. npm only lets a package that
+# exists trust a workflow, so the first release went out another way (by
+# hand, or with an NPM_TOKEN secret, which this uses when it's set); until
+# the package is on npm and nothing can publish it, the job skips with a
+# notice rather than failing.
 name: CI
 
 on:
@@ -46,25 +50,26 @@ jobs:
         timeout-minutes: 10
         permissions:
             contents: read
-            # For npm's provenance, which proves this run built it
+            # For trusted publishing, and npm's provenance, which proves
+            # this run built it
             id-token: write
         steps:
             - uses: actions/checkout@v7
             - uses: pnpm/action-setup@v6
             - uses: actions/setup-node@v7
               with:
-                  node-version: 22
-                  cache: pnpm
+                  # Node 24's npm is 11, which trusted publishing needs
+                  node-version: 24
                   registry-url: https://registry.npmjs.org
             - name: A version npm doesn't have yet
               id: release
               run: |
                   version=$(jq -r .version package.json)
-                  if [ -z "$NPM_TOKEN" ]; then
-                      echo "::notice::NPM_TOKEN isn't set, so $version isn't published"
-                      echo "publish=false" >> "$GITHUB_OUTPUT"
-                  elif npm view "@superforge/infra@$version" version > /dev/null 2>&1; then
+                  if npm view "@superforge/infra@$version" version > /dev/null 2>&1; then
                       echo "$version is on npm already"
+                      echo "publish=false" >> "$GITHUB_OUTPUT"
+                  elif [ -z "$NPM_TOKEN" ] && ! npm view @superforge/infra name > /dev/null 2>&1; then
+                      echo "::notice::@superforge/infra isn't on npm yet, and NPM_TOKEN isn't set, so $version isn't published: the first release goes out by hand (README.md, \"Releases\")"
                       echo "publish=false" >> "$GITHUB_OUTPUT"
                   else
                       echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -76,4 +81,6 @@ jobs:
             - if: ${{ steps.release.outputs.publish == 'true' }}
               run: pnpm build && npm publish --provenance --access public
               env:
+                  # Empty once trusted publishing is set up, when npm signs
+                  # in with this run's OIDC token instead
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

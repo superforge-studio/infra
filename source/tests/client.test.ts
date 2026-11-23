@@ -427,3 +427,43 @@ test("a comment to an Infra that's down, or answers 200, is unavailable", async 
         })
     }
 })
+
+test("the key's project, and none of its domains from an Infra from before it answered them", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const answer = (project: object) => {
+        const fake = new Hono().get("*", () =>
+            Response.json({ project, mode: "live" })
+        )
+        return infraClient({
+            key: KEY,
+            url: ADDRESS,
+            send: async (input, init) =>
+                fake.request(
+                    typeof input === "string" ? input : input.toString(),
+                    init
+                )
+        })
+    }
+    expect(
+        await answer({
+            id: "sf_project_1",
+            name: "VMD System",
+            domains: ["vmdsystem.com"]
+        }).project()
+    ).toEqual({
+        ok: true,
+        data: {
+            project: {
+                id: "sf_project_1",
+                name: "VMD System",
+                domains: ["vmdsystem.com"]
+            },
+            mode: "live"
+        }
+    })
+    const older = await answer({
+        id: "sf_project_1",
+        name: "VMD System"
+    }).project()
+    expect(older.ok && older.data.project.domains).toBeNull()
+})

@@ -11,10 +11,9 @@
 # to npm with trusted publishing (OIDC): npm trusts this repository's
 # `ci.yml` to publish @superforge/infra, set on the package's settings page
 # on npmjs.com, so no token is kept anywhere. npm only lets a package that
-# exists trust a workflow, so the first release went out another way (by
-# hand, or with an NPM_TOKEN secret, which this uses when it's set); until
-# the package is on npm and nothing can publish it, the job skips with a
-# notice rather than failing.
+# exists trust a workflow, so the package was made by hand first, with a
+# staged 0.1.0 that was never approved; 0.1.1 was the first this published.
+# An NPM_TOKEN secret, if one is ever set, is used in its place.
 name: CI
 
 on:
@@ -68,14 +67,9 @@ jobs:
                   if npm view "@superforge/infra@$version" version > /dev/null 2>&1; then
                       echo "$version is on npm already"
                       echo "publish=false" >> "$GITHUB_OUTPUT"
-                  elif [ -z "$NPM_TOKEN" ] && ! npm view @superforge/infra name > /dev/null 2>&1; then
-                      echo "::notice::@superforge/infra isn't on npm yet, and NPM_TOKEN isn't set, so $version isn't published: the first release goes out by hand (README.md, \"Releases\")"
-                      echo "publish=false" >> "$GITHUB_OUTPUT"
                   else
                       echo "publish=true" >> "$GITHUB_OUTPUT"
                   fi
-              env:
-                  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
             - if: ${{ steps.release.outputs.publish == 'true' }}
               run: pnpm install --frozen-lockfile
             - if: ${{ steps.release.outputs.publish == 'true' }}

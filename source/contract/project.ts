@@ -39,6 +39,6 @@ export type InfraProject = z.output<typeof infra_project>
 
 /**
  * The header every call carries, saying which release of @superforge/infra
- * made it (`@superforge/infra/0.2.0`), which Infra logs and keeps per key
+ * made it (`@superforge/infra/0.3.0`), which Infra logs and keeps per key
  */
 export const CLIENT_HEADER = "Infra-Client"

@@ -71,7 +71,7 @@ test("starting a login sends the key, the package's version, and who it's for", 
             method: "POST",
             path: "/v1/login/start",
             key: `Bearer ${KEY}`,
-            client: "@superforge/infra/0.2.0",
+            client: "@superforge/infra/0.3.0",
             body: { ...START, link_to: "http://localhost:3000/login" }
         }
     ])
@@ -249,7 +249,7 @@ const COMMENT: FiledComment = {
     user_agent: "Mozilla/5.0"
 }
 
-test("a comment goes to /v1/comments with who filed it, and answers its ID", async () => {
+test("a comment goes to /v1/board/comments with who filed it, and answers its ID", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { infra, received } = fakeInfra({
         status: 201,
@@ -262,7 +262,7 @@ test("a comment goes to /v1/comments with who filed it, and answers its ID", asy
         data: { id: "c-1", created_at: new Date("2026-11-18T18:15:00.000Z") }
     })
     expect(received).toEqual([
-        expect.objectContaining({ path: "/v1/comments", body: COMMENT })
+        expect.objectContaining({ path: "/v1/board/comments", body: COMMENT })
     ])
 })
 
@@ -277,7 +277,7 @@ test("a comment Infra refuses says what didn't fit, and is logged as the app's m
     const { infra } = fakeInfra({ status: 400, body: { error } })
     expect(await infra.fileComment(COMMENT)).toEqual({ ok: false, error })
     expect(logged).toHaveBeenCalledWith("Infra refused a comment", {
-        call: "/comments",
+        call: "/board/comments",
         refused: error
     })
 })

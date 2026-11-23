@@ -180,7 +180,7 @@ export function infraClient({
         },
 
         async fileComment(comment) {
-            const call = "/comments"
+            const call = "/board/comments"
             const filed = await answered(
                 ask("POST", call, comment),
                 call,

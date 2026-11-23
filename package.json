@@ -1,0 +1,48 @@
+{
+    "name": "@superforge/infra",
+    "version": "0.1.0",
+    "description": "Superforge Infra, the backend services Foundation and Skylevel apps run on, as an app's server calls it",
+    "license": "MIT",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/superforge-studio/infra.git"
+    },
+    "packageManager": "pnpm@10.17.0",
+    "engines": {
+        "node": ">=22"
+    },
+    "exports": {
+        ".": {
+            "types": "./output/index.d.ts",
+            "default": "./output/index.js"
+        }
+    },
+    "files": [
+        "output",
+        "!output/tests"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "rm -rf output && tsc -p tsconfig.build.json",
+        "format": "biome check --write .",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "check": "biome check . && tsc --noEmit && vitest run && pnpm build",
+        "prepublishOnly": "pnpm check"
+    },
+    "dependencies": {
+        "jose": "6.2.15"
+    },
+    "peerDependencies": {
+        "zod": "^4.6.7"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.6.2",
+        "@types/node": "^22.10.2",
+        "hono": "^4.13.13",
+        "typescript": "^6.0.2",
+        "vitest": "^5.0.5",
+        "zod": "^4.6.7"
+    }
+}

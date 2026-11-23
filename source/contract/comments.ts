@@ -3,7 +3,7 @@ import { invalid_refusal, too_large_refusal } from "./errors.js"
 import { user_id } from "./people.js"
 
 // What an app's people say about it, from the toolbar on its pages: the app's
-// server sends each comment to `POST /v1/comments` with who filed it, and
+// server sends each comment to `POST /v1/board/comments` with who filed it, and
 // Infra keeps it and files it on the app's board. Infra's README,
 // "Comments", has the call.
 
@@ -19,7 +19,7 @@ const coordinate = z.number().int().min(-1_000_000).max(10_000_000)
 const length = z.number().int().min(0).max(10_000_000)
 
 /**
- * `POST /v1/comments`: what was written, the page's path and title, the
+ * `POST /v1/board/comments`: what was written, the page's path and title, the
  * element it's about (a CSS selector from the page's body, its tag, the
  * text it shows or null, its `class`, and its box on the page) or null for
  * the page as a whole, the window's size, who filed it (the app's ID for
@@ -57,7 +57,7 @@ export const filed_comment = z.object({
 })
 export type FiledComment = z.input<typeof filed_comment>
 
-/** What `POST /v1/comments` answers: the comment's ID, and when */
+/** What `POST /v1/board/comments` answers: the comment's ID, and when */
 export const kept_comment = z
     .object({
         comment: z.object({

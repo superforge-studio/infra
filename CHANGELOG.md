@@ -3,6 +3,10 @@
 Every release of `@superforge/infra`, newest first. Each is a version on
 npm, published when its push reaches `main` (README.md, "Releases").
 
+- 0.3.0 (Nov 23, 2026): a comment goes to `POST /v1/board/comments`, the
+  board's prefix, as Claude's login has `/v1/agents` (TASK-1891), with no
+  old path kept, so 0.2.0's comments stop reaching Infra once it deploys:
+  take this release in its place. Nothing else changes for an app.
 - 0.2.0 (Nov 23, 2026): Infra's API takes its v1 shape, with no
   backward compatibility (TASK-1891), so an app must take this release
   when Infra deploys it. Infra's contract, every call's request and answer

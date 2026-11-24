@@ -44,6 +44,20 @@ export const INFRA_ERRORS = {
 /** A reason Infra refuses a call with */
 export type InfraErrorReason = keyof typeof INFRA_ERRORS
 
+/**
+ * The reasons the package itself answers with, never Infra: beside
+ * `INFRA_ERRORS`, so the two lists hold every reason an app sees
+ */
+export const CLIENT_ERRORS = {
+    unavailable:
+        "Infra couldn't be asked: no key in a build, a key it refused, no answer, or an answer outside the contract; `message` says which",
+    "invalid-token":
+        "A token Claude brought isn't one Infra signed for this app, address, project and mode, or it ran out; `message` says which"
+} as const
+
+/** A reason the package answers with */
+export type ClientErrorReason = keyof typeof CLIENT_ERRORS
+
 /** What didn't fit, for `invalid`: a dotted path, and why */
 export const infra_issue = z.object({ path: z.string(), message: z.string() })
 export type InfraIssue = z.infer<typeof infra_issue>

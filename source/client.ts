@@ -1,6 +1,7 @@
 import type { z } from "zod"
 import { checkToken, infraKeys, passOAuth } from "./agents.js"
 import {
+    AGENT_ID,
     APP_PATHS,
     type AppPaths,
     agent_connections,
@@ -19,16 +20,12 @@ import {
     verify_refused
 } from "./contract/index.js"
 import type { Infra, InfraUnavailable } from "./infra.js"
-import { SECOND } from "./primitives.js"
+import { CALL_TIMEOUT } from "./primitives.js"
 import type { AsyncOperationResult } from "./results.js"
 import { CLIENT } from "./version.js"
 
 /** Infra's API, which a project's keys call */
 export const INFRA_URL = "https://infra.superforge.studio/v1"
-
-// How long a call waits for Infra's answer. Starting a login waits on
-// Infra sending the email, which takes a second or two.
-const TIMEOUT = 15 * SECOND
 
 // One call's answer: its status and its JSON
 type Answer = { status: number; json: unknown }
@@ -75,7 +72,7 @@ export function infraClient({
             method,
             headers,
             body: body === undefined ? undefined : JSON.stringify(body),
-            signal: AbortSignal.timeout(TIMEOUT)
+            signal: AbortSignal.timeout(CALL_TIMEOUT)
         }).catch((error: unknown) => {
             console.error("Infra didn't answer", { call, url, error })
             return null
@@ -113,13 +110,13 @@ export function infraClient({
         return { ok: true, data: { status: response.status, json } }
     }
 
-    // An answer read with `schema` when it's `status`, else as one of the
-    // call's `refused`, else as one the client can't act on: unavailable,
-    // in Infra's own words
+    // An answer read with `schema` when it's a success (any 2xx, so Infra
+    // can say 200 or 201 as it likes), else as one of the call's `refused`,
+    // else as one the client can't act on: unavailable, in Infra's own words
     async function answered<Data, Refused = never>(
         asked: AsyncOperationResult<Answer, InfraUnavailable>,
         call: string,
-        expected: { status: number; schema: z.ZodType<Data> },
+        expected: { schema: z.ZodType<Data> },
         refused?: z.ZodType<Refused>
     ): AsyncOperationResult<Data, Refused | InfraUnavailable> {
         const answer = await asked
@@ -127,7 +124,7 @@ export function infraClient({
             return answer
         }
         const { status, json } = answer.data
-        if (status === expected.status) {
+        if (status >= 200 && status < 300) {
             const parsed = expected.schema.safeParse(json)
             return parsed.success
                 ? { ok: true, data: parsed.data }
@@ -144,12 +141,11 @@ export function infraClient({
     // Claude's login (agents.ts): Infra's public keys, fetched once and
     // again for a key they don't have, and which project and mode the key
     // is, which every token must be for, asked once
-    const keys = infraKeys(url)
+    const keys = infraKeys(url, send)
     let project: ReturnType<Infra["project"]> | undefined
     function projectOf() {
         const call = "/project"
         return answered(ask("GET", call), call, {
-            status: 200,
             schema: infra_project
         })
     }
@@ -164,7 +160,7 @@ export function infraClient({
             return answered(
                 ask("POST", call, request),
                 call,
-                { status: 200, schema: started_login },
+                { schema: started_login },
                 start_refused
             )
         },
@@ -174,7 +170,7 @@ export function infraClient({
             return answered(
                 ask("POST", call, proof),
                 call,
-                { status: 200, schema: verified_login },
+                { schema: verified_login },
                 verify_refused
             )
         },
@@ -184,7 +180,7 @@ export function infraClient({
             const filed = await answered(
                 ask("POST", call, comment),
                 call,
-                { status: 201, schema: kept_comment },
+                { schema: kept_comment },
                 comment_refused
             )
             if (!filed.ok && filed.error.reason !== "unavailable") {
@@ -203,32 +199,41 @@ export function infraClient({
         },
 
         async agentRequest(request_id) {
-            const call = `/agents/requests/${request_id}`
+            if (!AGENT_ID.test(request_id)) {
+                return notAnId("request", request_id)
+            }
+            const call = `/agents/requests/${encodeURIComponent(request_id)}`
             const asked = await answered(
                 ask("GET", call),
                 call,
-                { status: 200, schema: agent_request },
+                { schema: agent_request },
                 agent_refused
             )
             return asked.ok ? { ok: true, data: asked.data.request } : asked
         },
 
-        allowAgent(request_id, allowed) {
-            const call = `/agents/requests/${request_id}/allow`
+        async allowAgent(request_id, allowed) {
+            if (!AGENT_ID.test(request_id)) {
+                return notAnId("request", request_id)
+            }
+            const call = `/agents/requests/${encodeURIComponent(request_id)}/allow`
             return answered(
                 ask("POST", call, allowed),
                 call,
-                { status: 200, schema: agent_redirect },
+                { schema: agent_redirect },
                 agent_refused
             )
         },
 
-        denyAgent(request_id) {
-            const call = `/agents/requests/${request_id}/deny`
+        async denyAgent(request_id) {
+            if (!AGENT_ID.test(request_id)) {
+                return notAnId("request", request_id)
+            }
+            const call = `/agents/requests/${encodeURIComponent(request_id)}/deny`
             return answered(
                 ask("POST", call, {}),
                 call,
-                { status: 200, schema: agent_redirect },
+                { schema: agent_redirect },
                 agent_refused
             )
         },
@@ -236,7 +241,6 @@ export function infraClient({
         async agentConnections(user_id) {
             const call = `/agents/connections?${new URLSearchParams({ user_id })}`
             const listed = await answered(ask("GET", call), call, {
-                status: 200,
                 schema: agent_connections
             })
             return listed.ok
@@ -245,11 +249,14 @@ export function infraClient({
         },
 
         async endAgentConnection(connection_id) {
-            const call = `/agents/connections/${connection_id}`
+            if (!AGENT_ID.test(connection_id)) {
+                return notAnId("connection", connection_id)
+            }
+            const call = `/agents/connections/${encodeURIComponent(connection_id)}`
             const ended = await answered(
                 ask("DELETE", call),
                 call,
-                { status: 200, schema: agent_ended },
+                { schema: agent_ended },
                 agent_refused
             )
             return ended.ok ? { ok: true, data: null } : ended
@@ -258,7 +265,6 @@ export function infraClient({
         async endAgentConnections(user_id) {
             const call = `/agents/connections?${new URLSearchParams({ user_id })}`
             const ended = await answered(ask("DELETE", call), call, {
-                status: 200,
                 schema: agent_ended
             })
             return ended.ok ? { ok: true, data: ended.data.ended } : ended
@@ -280,6 +286,20 @@ export function infraClient({
                     mode: known.data.mode
                 })
             }
+        }
+    }
+}
+
+// An ID that can't be one of Infra's, refused before any call, so a route
+// that passes on what it was sent can't make the path reach another of
+// Infra's addresses: what Infra would answer, since it has none such
+function notAnId(kind: "request" | "connection", id: string) {
+    console.warn("Not an ID Infra makes", { kind, length: id.length })
+    return {
+        ok: false as const,
+        error: {
+            reason: "not-found" as const,
+            message: `There's no ${kind} with this ID: Infra's IDs are letters, digits, _ and -, at most 128 of them.`
         }
     }
 }

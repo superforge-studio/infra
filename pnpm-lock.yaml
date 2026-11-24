@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       jose:
-        specifier: 6.2.15
+        specifier: ^6.2.15
         version: 6.2.15
     devDependencies:
       '@biomejs/biome':

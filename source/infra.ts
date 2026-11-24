@@ -22,11 +22,13 @@ import type { AsyncOperationResult } from "./results.js"
 // says whether what they brought back is right; comments, what the app's
 // people said about it from its toolbar; Claude's login to the app's MCP;
 // and which project the app's key is for. The app keeps its own users,
-// sessions and analytics. Infra's README has the calls; an app reaches
+// sessions and analytics. Infra's API reference (the Superforge MCP's `read_infra_docs`) has the
+// calls; an app reaches
 // them through one of these, the real Infra (client.ts) or the stand-in
 // (stand-in.ts), as `chooseInfra` picks (choose.ts). Every refusal is
 // Infra's own `error`, `{ reason, message, … }`, as its contract has it
-// (contract/), or `unavailable`.
+// (contract/), or one of the package's own (`CLIENT_ERRORS`):
+// `unavailable`, or `invalid-token` for a token Claude brought.
 
 /** What an app asks of Infra, whichever answers: the real one or the stand-in */
 export type Infra = {
@@ -117,8 +119,15 @@ export type Infra = {
     checkAgentToken(
         token: string,
         expected: { origin: string; resource: string }
-    ): AsyncOperationResult<AgentToken, "invalid-token" | InfraUnavailable>
+    ): AsyncOperationResult<AgentToken, AgentTokenRefused | InfraUnavailable>
 }
+
+/**
+ * A token Claude brought that the app mustn't take, and why in words:
+ * it ran out, it's for another address or app, or Infra didn't sign it.
+ * The app answers it 401, so Claude logs in again.
+ */
+export type AgentTokenRefused = { reason: "invalid-token"; message: string }
 
 /** What the app learns from a token Claude brings, once it's checked */
 export type AgentToken = {

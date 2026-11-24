@@ -8,7 +8,7 @@ import { standInAgentToken, standInInfra } from "../stand-in.js"
 // passes on as they are, and the tokens it checks
 
 const KEY = "sf_test_0123456789abcdefghijklmnopqrstuv"
-const ORIGIN = "https://vmdsystem.com"
+const ORIGIN = "https://example.com"
 
 // The client, with Infra answering `answer` to every call
 function withInfra(answer: { status: number; body: unknown }) {
@@ -153,5 +153,12 @@ test("a token is good only for the address it was made for", async () => {
             origin: "http://localhost",
             resource: "http://localhost/mcp"
         })
-    ).toEqual({ ok: false, error: "invalid-token" })
+    ).toEqual({
+        ok: false,
+        error: {
+            reason: "invalid-token",
+            message:
+                "Claude's token is for another address than the one it was brought to."
+        }
+    })
 })

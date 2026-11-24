@@ -11,6 +11,7 @@ import {
     type AgentScope,
     COMMENT_BODY_LIMIT,
     filed_comment,
+    isLoopbackHost,
     login_start,
     login_verify
 } from "./contract/index.js"
@@ -42,7 +43,10 @@ export type WaitingLogin = {
  * it's given, an app's website's. An app's tests always use it, so they
  * never reach Infra, and so does a dev server with no test key
  * (choose.ts). A build never does: anyone could log in as anyone, since
- * the page shows the code. Its refusals say what Infra's say.
+ * the page shows the code. Its refusals have Infra's reasons, though not
+ * always its words, which aren't contract. Like Infra, it links only to
+ * this computer and the project's `domains`, over https, and answers
+ * `with_link: false` for any other host.
  *
  * `waiting` is where it keeps what it sent, by address: its own, or one
  * that outlives a dev server's reloads. With `logs`, as a dev server has
@@ -78,6 +82,8 @@ export function standInInfra({
                 return misfit(parsed.error)
             }
             const { channel, address, link_to } = parsed.data
+            const page =
+                link_to === undefined ? null : linkPage(link_to, domains)
             const sent: WaitingLogin = {
                 address,
                 code: randomCode(),
@@ -91,14 +97,11 @@ export function standInInfra({
                 data: {
                     channel,
                     address,
-                    with_link: link_to !== undefined,
+                    with_link: page !== null,
                     expires_at: new Date(sent.expires_at),
                     test: {
                         code: sent.code,
-                        link:
-                            link_to === undefined
-                                ? null
-                                : `${link_to}#${sent.token}`
+                        link: page === null ? null : `${page}#${sent.token}`
                     }
                 }
             }
@@ -244,6 +247,22 @@ export function standInInfra({
             })
         }
     }
+}
+
+// The page a login link opens, by Infra's rule: as it is on this computer,
+// over https on its hostname when that's one of the project's domains,
+// whatever scheme or port the app said, and null on any other host, which
+// gets the code alone
+function linkPage(link_to: string, domains: string[]) {
+    const url = new URL(link_to)
+    const page = `${url.pathname}${url.search}`
+    if (isLoopbackHost(url.hostname)) {
+        return `${url.origin}${page}`
+    }
+    const domain = domains.find(
+        (each) => each.toLowerCase() === url.hostname.toLowerCase()
+    )
+    return domain === undefined ? null : `https://${url.hostname}${page}`
 }
 
 // A request that doesn't fit Infra's contract: Infra answers it 400

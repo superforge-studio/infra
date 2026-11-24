@@ -16,7 +16,12 @@ export { INFRA_URL, infraClient } from "./client.js"
 // reason it refuses one, and the constants they're made of
 export * from "./contract/index.js"
 // What an app asks of Infra, and what the app learns from Claude's token
-export type { AgentToken, Infra, InfraUnavailable } from "./infra.js"
+export type {
+    AgentToken,
+    AgentTokenRefused,
+    Infra,
+    InfraUnavailable
+} from "./infra.js"
 // The result types every call answers, the same shape as the templates'
 // global `OperationResult` and `AsyncOperationResult`
 export type { AsyncOperationResult, OperationResult } from "./results.js"

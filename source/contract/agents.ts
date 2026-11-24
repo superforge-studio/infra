@@ -18,7 +18,7 @@ export type AgentScope = z.infer<typeof agent_scope>
 
 /**
  * The header the app's server sends Claude's OAuth calls on with: where
- * Claude reached the app, `https://vmdsystem.com`, its tokens' issuer.
+ * Claude reached the app, `https://example.com`, its tokens' issuer.
  * Only a header can carry it, since the call's body and query are Claude's.
  */
 export const APP_ORIGIN_HEADER = "App-Origin"
@@ -33,6 +33,13 @@ export const APP_ORIGIN_HEADER = "App-Origin"
 export type AppPaths = { oauth: string; allow: string }
 export const APP_PATHS: AppPaths = { oauth: "/oauth", allow: "/connect" }
 
+/**
+ * An ID Infra makes for a request or a connection, as the app puts it in a
+ * path: letters, digits, `_` and `-`, so it can't reach another address
+ */
+export const AGENT_ID = /^[\w-]{1,128}$/
+export const agent_id = z.string().regex(AGENT_ID)
+
 /** The OAuth calls Claude makes, which the app passes on */
 export const OAUTH_CALLS = ["authorize", "token", "register", "revoke"] as const
 export type OAuthCall = (typeof OAUTH_CALLS)[number]
@@ -43,8 +50,8 @@ export type OAuthCall = (typeof OAUTH_CALLS)[number]
  * goes back to Claude with an error
  */
 export const agent_authorized = z.union([
-    z.object({ request: z.object({ id: z.uuid() }) }),
-    z.object({ redirect_to: z.url() })
+    z.object({ request: z.object({ id: agent_id }) }),
+    z.object({ redirect_to: z.url({ protocol: /^https?$/ }) })
 ])
 
 /** Why authorize sends nothing back to Claude: answered as plain words */
@@ -63,7 +70,9 @@ export const agent_request = z.object({
         // The address Claude asked to use, which its tokens are good for:
         // the app's MCP
         resource: z.string(),
-        expires_at: z.iso.datetime().transform((value) => new Date(value))
+        expires_at: z.iso
+            .datetime({ offset: true })
+            .transform((value) => new Date(value))
     })
 })
 export type AgentRequest = z.output<typeof agent_request>["request"]
@@ -76,7 +85,9 @@ export const agent_allow = z.object({
 export type AgentAllow = z.input<typeof agent_allow>
 
 /** What allowing or denying answers: where the browser goes back to Claude */
-export const agent_redirect = z.object({ redirect_to: z.url() })
+export const agent_redirect = z.object({
+    redirect_to: z.url({ protocol: /^https?$/ })
+})
 
 /** `GET` and `DELETE /v1/agents/connections?user_id=…`: whose */
 export const connections_query = z.object({ user_id })
@@ -89,8 +100,12 @@ export const agent_connection = z.object({
     scopes: z.array(agent_scope),
     resource: z.string(),
     // When Claude last refreshed it, to within about ten minutes
-    last_used_at: z.iso.datetime().transform((value) => new Date(value)),
-    created_at: z.iso.datetime().transform((value) => new Date(value))
+    last_used_at: z.iso
+        .datetime({ offset: true })
+        .transform((value) => new Date(value)),
+    created_at: z.iso
+        .datetime({ offset: true })
+        .transform((value) => new Date(value))
 })
 export type AgentConnection = z.output<typeof agent_connection>
 

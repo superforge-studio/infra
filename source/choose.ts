@@ -4,7 +4,12 @@ import { parseEnv } from "node:util"
 import { z } from "zod"
 import { unavailableOAuth } from "./agents.js"
 import { INFRA_URL, infraClient } from "./client.js"
-import { APP_PATHS, type AppPaths } from "./contract/index.js"
+import {
+    APP_PATHS,
+    type AppPaths,
+    KEY_BODY,
+    KEY_PREFIXES
+} from "./contract/index.js"
 import type { Infra, InfraUnavailable } from "./infra.js"
 import { standInInfra, type WaitingLogin } from "./stand-in.js"
 
@@ -22,10 +27,19 @@ import { standInInfra, type WaitingLogin } from "./stand-in.js"
 // takes a secret key, so it can't email real people. An app's tests use
 // the stand-in themselves. When there's nothing to call, every call
 // answers unavailable with why, which an app shows its team.
+//
+// A dev server that has a secret key, or runs on Railway, calls nothing
+// either: it's a deployed server built as a dev one (NODE_ENV=development
+// on its service), and the stand-in would show anyone the code to log in
+// as anyone.
 
-// A key's shape: its prefix, then 32 letters and digits
-const SECRET_KEY = /^sf_secret_[0-9A-Za-z]{32}$/
-const TEST_KEY = /^sf_test_[0-9A-Za-z]{32}$/
+// A key's shape: its prefix, then what Infra makes (KEY_BODY)
+const SECRET_KEY = new RegExp(`^${KEY_PREFIXES.live}${KEY_BODY}$`)
+const TEST_KEY = new RegExp(`^${KEY_PREFIXES.test}${KEY_BODY}$`)
+
+// What Railway sets on a deployment alone, never in a checkout (`railway
+// run` brings a service's variables, not this)
+const DEPLOYED_MARKERS = ["RAILWAY_DEPLOYMENT_ID"]
 
 // What the server reads to reach Infra, by the variables' names: the
 // secret key Railway holds, and a checkout's test key. A dev server reads
@@ -109,6 +123,15 @@ export function chooseInfra({
             console.error("Login is down", { message })
             return { infra: unavailableInfra(message), using: "nothing" }
         }
+    }
+
+    const deployed = DEPLOYED_MARKERS.find(
+        (name) => (environment[name] ?? "").trim() !== ""
+    )
+    if (INFRA_SECRET_KEY !== undefined || deployed !== undefined) {
+        const message = `No one can log in: this server runs as a dev server, though ${deployed === undefined ? "it has INFRA_SECRET_KEY" : `it's deployed (${deployed} is set)`}, so it won't use the stand-in, which shows anyone the code. A deployed app is built for production: take NODE_ENV=development off the app's service in Railway. On this computer, take INFRA_SECRET_KEY out of the checkout's .env and the shell, and use INFRA_TEST_KEY.`
+        console.error("Login is down", { message })
+        return { infra: unavailableInfra(message), using: "nothing" }
     }
 
     // Without a slash at the end, since each call's path starts with one
@@ -224,7 +247,7 @@ function noSecretKey(set: string | undefined) {
     } else if (TEST_KEY.test(set)) {
         return `No one can log in: INFRA_SECRET_KEY holds a test key (sf_test_…), which never emails anyone, so a deployed app can't use it. ${fix}`
     } else {
-        return `No one can log in: INFRA_SECRET_KEY isn't a secret key (sf_secret_ and 32 letters and digits), so something may be missing from it or added to it. ${fix}`
+        return `No one can log in: INFRA_SECRET_KEY isn't a secret key (sf_secret_ and 32 or more letters and digits), so something may be missing from it or added to it. ${fix}`
     }
 }
 

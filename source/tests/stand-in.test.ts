@@ -39,6 +39,37 @@ test("starting answers the code, and a link to the page the app names", async ()
     )
 })
 
+test("a link goes only to this computer and the project's domains, over https", async () => {
+    const infra = standInInfra({ domains: ["example.com"] })
+    const link = async (link_to: string) => {
+        const sent = await infra.startLogin({
+            channel: "email",
+            address: EMAIL,
+            ip: "::1",
+            link_to
+        })
+        if (!sent.ok) {
+            throw new Error("The stand-in didn't start a login")
+        }
+        return {
+            with_link: sent.data.with_link,
+            page: sent.data.test?.link?.split("#")[0] ?? null
+        }
+    }
+    expect(await link("http://example.com:8080/login?next=/a")).toEqual({
+        with_link: true,
+        page: "https://example.com/login?next=/a"
+    })
+    expect(await link("http://[::1]:3000/login")).toEqual({
+        with_link: true,
+        page: "http://[::1]:3000/login"
+    })
+    expect(await link("https://other.com/login")).toEqual({
+        with_link: false,
+        page: null
+    })
+})
+
 test("without link_to, there's a code but no link", async () => {
     const { sent } = await started(null)
     expect(sent.with_link).toBe(false)

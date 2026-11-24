@@ -3,6 +3,25 @@
 Every release of `@superforge/infra`, newest first. Each is a version on
 npm, published when its push reaches `main` (README.md, "Releases").
 
+- 0.4.0 (Nov 24, 2026): the v1.0.0 review's quick fixes (TASK-1905).
+  `checkAgentToken` refuses with `{ reason: "invalid-token", message }`,
+  saying why (ran out, another address, app, project or mode), rather than
+  a bare string, and with `unavailable` when Infra's public keys can't be
+  fetched, rather than calling a good token bad; the package's own reasons
+  are `CLIENT_ERRORS`, beside `INFRA_ERRORS`. A token must have `exp` and
+  `typ: at+jwt`, with 5 seconds' clock skew allowed. A request or
+  connection ID that isn't Infra's shape is refused `not-found` before any
+  call, and encoded in the path. Claude's OAuth calls refuse a body over
+  16 KB with 413. A dev server with `INFRA_SECRET_KEY`, or on Railway,
+  calls nothing rather than the stand-in. The stand-in links only to this
+  computer and the project's domains, as Infra does. Keys may be 32 to 128
+  letters, digits and underscores after their prefix; a success is any
+  2xx; times may carry an offset; a way back to Claude must be http or
+  https. `LOOPBACK_HOSTNAMES` and `isLoopbackHost` are this computer's
+  names, `[::1]` included. `jose` is `^6.2.15`; `main` and `types` are
+  set. `example.com` is every example. An app that compared
+  `checkAgentToken`'s error to `"invalid-token"` reads `error.reason`
+  instead; the templates check only `ok`, so they change nothing.
 - 0.3.0 (Nov 23, 2026): a comment goes to `POST /v1/board/comments`, the
   board's prefix, as Claude's login has `/v1/agents` (TASK-1891), with no
   old path kept, so 0.2.0's comments stop reaching Infra once it deploys:
@@ -26,8 +45,7 @@ npm, published when its push reaches `main` (README.md, "Releases").
 - 0.1.1 (Nov 23, 2026): every call tells Infra which version of the
   package made it, in an `Infra-Client` header (`@superforge/infra/0.1.1`),
   its OAuth calls passed through included, so Infra can see which version
-  each app is on and say when one's out of date. The first version on npm:
-  0.1.0 was staged and never approved.
+  each app is on and say when one's out of date.
 - 0.1.0 (Nov 23, 2026): the first release. Infra's client, the stand-in
   and the choice between them, moved out of Foundation's and Skylevel's
   `source/backend/infra/`, with Skylevel's `project()` for every app. Every

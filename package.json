@@ -1,6 +1,6 @@
 {
     "name": "@superforge/infra",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Superforge Infra, the backend services Foundation and Skylevel apps run on, as an app's server calls it",
     "license": "MIT",
     "type": "module",
@@ -12,6 +12,8 @@
     "engines": {
         "node": ">=22"
     },
+    "main": "./output/index.js",
+    "types": "./output/index.d.ts",
     "exports": {
         ".": {
             "types": "./output/index.d.ts",
@@ -23,8 +25,7 @@
         }
     },
     "files": [
-        "output",
-        "!output/tests"
+        "output"
     ],
     "sideEffects": false,
     "scripts": {
@@ -36,7 +37,7 @@
         "prepublishOnly": "pnpm check"
     },
     "dependencies": {
-        "jose": "6.2.15"
+        "jose": "^6.2.15"
     },
     "peerDependencies": {
         "zod": "^4.6.7"

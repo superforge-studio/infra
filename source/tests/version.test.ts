@@ -37,9 +37,9 @@ test("every call says which version made it, Claude's passed through too", async
     await infra.verifyLogin({ token: "a".repeat(43) })
     await infra.agentConnections("u-1")
     await infra.passOAuth(
-        new Request("https://vmdsystem.com/oauth/token", { method: "POST" }),
+        new Request("https://example.com/oauth/token", { method: "POST" }),
         "token",
-        "https://vmdsystem.com"
+        "https://example.com"
     )
     expect(sent).toEqual([CLIENT, CLIENT, CLIENT])
     expect(CLIENT_HEADER).toBe("Infra-Client")

@@ -62,7 +62,9 @@ export const kept_comment = z
     .object({
         comment: z.object({
             id: z.string(),
-            created_at: z.iso.datetime().transform((value) => new Date(value))
+            created_at: z.iso
+                .datetime({ offset: true })
+                .transform((value) => new Date(value))
         })
     })
     .transform(({ comment }) => comment)

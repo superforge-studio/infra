@@ -6,7 +6,7 @@
 // release that bumps one and not the other fails `pnpm check`.
 
 /** The package's version, as package.json says it */
-export const PACKAGE_VERSION = "0.3.0"
+export const PACKAGE_VERSION = "0.4.0"
 
-/** What it says: the package and its version, `@superforge/infra/0.3.0` */
+/** What it says: the package and its version, `@superforge/infra/<version>` */
 export const CLIENT = `@superforge/infra/${PACKAGE_VERSION}`

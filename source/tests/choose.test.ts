@@ -44,9 +44,43 @@ test("a build without a secret key calls nothing, rather than the stand-in", () 
 
 test("a dev server calls Infra with a test key, and never a secret one", () => {
     expect(choose(true, { INFRA_TEST_KEY: TEST_KEY })).toBe("test key")
-    expect(choose(true, { INFRA_SECRET_KEY: SECRET_KEY })).toBe("stand-in")
     expect(choose(true, { INFRA_TEST_KEY: SECRET_KEY })).toBe("stand-in")
     expect(choose(true, {})).toBe("stand-in")
+})
+
+test("a dev server with a secret key, or deployed, calls nothing, not the stand-in", async () => {
+    expect(choose(true, { INFRA_SECRET_KEY: SECRET_KEY })).toBe("nothing")
+    expect(
+        choose(true, { INFRA_SECRET_KEY: SECRET_KEY, INFRA_TEST_KEY: TEST_KEY })
+    ).toBe("nothing")
+    expect(choose(true, { RAILWAY_DEPLOYMENT_ID: "d-1" })).toBe("nothing")
+    const { infra } = chooseInfra({
+        development: true,
+        environment: { RAILWAY_DEPLOYMENT_ID: "d-1" },
+        checkout: emptyCheckout()
+    })
+    const started = await infra.startLogin({
+        channel: "email",
+        address: "ada@example.com",
+        ip: "203.0.113.7"
+    })
+    expect(!started.ok && started.error.message).toContain(
+        "take NODE_ENV=development off"
+    )
+})
+
+test("a key may be longer than 32, and carry an underscore", () => {
+    const longer = `sf_secret_${"A1".repeat(20)}_x9`
+    expect(choose(false, { INFRA_SECRET_KEY: longer })).toBe("secret key")
+    expect(choose(true, { INFRA_TEST_KEY: `sf_test_${"b2".repeat(40)}` })).toBe(
+        "test key"
+    )
+    expect(
+        choose(false, { INFRA_SECRET_KEY: `sf_secret_${"a".repeat(31)}` })
+    ).toBe("nothing")
+    expect(choose(false, { INFRA_SECRET_KEY: `${SECRET_KEY}-` })).toBe(
+        "nothing"
+    )
 })
 
 test("a dev server reads its test key from the checkout's .env", () => {
@@ -107,7 +141,7 @@ test("a build with nothing to call says why at every call, and what fixes it", a
         "holds a test key (sf_test_…), which never emails anyone"
     )
     expect(await why({ INFRA_SECRET_KEY: "sf_secret_short" })).toContain(
-        "isn't a secret key (sf_secret_ and 32 letters and digits)"
+        "isn't a secret key (sf_secret_ and 32 or more letters and digits)"
     )
 
     // Claude's OAuth calls say it too, as OAuth's error_description
@@ -117,9 +151,9 @@ test("a build with nothing to call says why at every call, and what fixes it", a
         checkout: emptyCheckout()
     })
     const passed = await infra.passOAuth(
-        new Request("https://vmdsystem.com/oauth/token", { method: "POST" }),
+        new Request("https://example.com/oauth/token", { method: "POST" }),
         "token",
-        "https://vmdsystem.com"
+        "https://example.com"
     )
     expect(passed.status).toBe(503)
     expect((await passed.json()).error_description).toContain(
@@ -132,10 +166,8 @@ test("the stand-in a dev server gets has the website's domains", async () => {
         development: true,
         environment: {},
         checkout: emptyCheckout(),
-        domains: ["vmdsystem.com"]
+        domains: ["example.com"]
     })
     const project = await infra.project()
-    expect(project.ok && project.data.project.domains).toEqual([
-        "vmdsystem.com"
-    ])
+    expect(project.ok && project.data.project.domains).toEqual(["example.com"])
 })

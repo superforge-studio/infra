@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { expect, test, vi } from "vitest"
 import { infraClient } from "../client.js"
 import type { FiledComment } from "../contract/index.js"
+import { CLIENT } from "../version.js"
 
 // The client against a fake of Infra's API, answering what Infra's README
 // says each call answers, so no test reaches the real one
@@ -71,7 +72,7 @@ test("starting a login sends the key, the package's version, and who it's for", 
             method: "POST",
             path: "/v1/login/start",
             key: `Bearer ${KEY}`,
-            client: "@superforge/infra/0.3.0",
+            client: CLIENT,
             body: { ...START, link_to: "http://localhost:3000/login" }
         }
     ])
@@ -286,8 +287,8 @@ test("the key's project, with its domains", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const project = {
         id: "sf_project_1",
-        name: "VMD System",
-        domains: ["vmdsystem.com"]
+        name: "Example",
+        domains: ["example.com"]
     }
     const { infra, received } = fakeInfra({
         status: 200,
@@ -307,7 +308,7 @@ test("Claude's requests and connections go by the app's user ID", async () => {
         user_id: "u-1",
         client_name: "Claude",
         scopes: ["read"],
-        resource: "https://vmdsystem.com/admin/mcp",
+        resource: "https://example.com/admin/mcp",
         last_used_at: "2026-11-21T08:00:00.000Z",
         created_at: "2026-11-20T15:00:00.000Z"
     }

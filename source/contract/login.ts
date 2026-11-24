@@ -37,7 +37,7 @@ export const login_token = z.string().regex(/^[\w-]{43}$/)
 export const visitor_ip = z.union([z.ipv4(), z.ipv6()])
 
 /**
- * The page a login link opens, like `https://vmdsystem.com/login`: Infra
+ * The page a login link opens, like `https://example.com/login`: Infra
  * adds `#<token>`, and links only to the project's domains and localhost
  */
 export const link_to = z
@@ -68,7 +68,9 @@ export const started_login = z.object({
     // Whether the message holds a link as well as the code
     with_link: z.boolean(),
     // When the code and the link stop working
-    expires_at: z.iso.datetime().transform((value) => new Date(value)),
+    expires_at: z.iso
+        .datetime({ offset: true })
+        .transform((value) => new Date(value)),
     // With a test key, which sends nothing: what the message would have
     // held, for a dev server to show on the page. Null with a secret key.
     test: z.object({ code: z.string(), link: z.string().nullable() }).nullable()

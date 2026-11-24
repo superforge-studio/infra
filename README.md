@@ -5,9 +5,10 @@ runs on, as an app's server calls it: login for its people, its comments
 from the toolbar, Claude's login to its MCP, and which project its key is
 for. It's the one way an app reaches Infra: a typed client, the stand-in
 an app's tests and a fresh dev server use in its place, and the choice
-between them. Infra's own API, each call with its fields and errors, is
-its README in superforge's `source/infra/`, which the Superforge MCP's
-`read_infra_docs` hands an agent.
+between them. Infra's own API reference, each call with its fields and
+errors, isn't public: an agent reads it with the Superforge MCP's
+`read_infra_docs`. Everything an app calls is below, and every request and
+answer is a zod schema in `@superforge/infra/contract`.
 
 ```bash
 pnpm add @superforge/infra zod
@@ -29,14 +30,14 @@ const { infra } = chooseInfra({
     environment: process.env,
     checkout: process.cwd(),
     // The website's hosts, which the stand-in's project has
-    domains: ["vmdsystem.com"]
+    domains: ["example.com"]
 })
 
 const started = await infra.startLogin({
     channel: "email",
     address: "ada@example.com",
     ip: visitor_ip,
-    link_to: "https://vmdsystem.com/login"
+    link_to: "https://example.com/login"
 })
 if (!started.ok) {
     console.warn("Login didn't start", started.error)
@@ -67,14 +68,87 @@ while Infra itself is worked on: a build always calls Infra's own
 address, so no variable can send its secret key, or anyone's login,
 anywhere else.
 
+A dev server that has `INFRA_SECRET_KEY`, or runs on Railway
+(`RAILWAY_DEPLOYMENT_ID`), calls nothing either: it's a deployed server
+built as a dev one, and the stand-in would show anyone the code.
+
+`chooseInfra` takes `development`, `environment` (`process.env`),
+`checkout` (the folder whose `.env` a dev server reads), `domains` (the
+stand-in project's) and `paths`, and answers `{ infra, using }`, `using`
+being `"secret key"`, `"test key"`, `"stand-in"` or `"nothing"`.
+
+### What `Infra` answers
+
+Every method answers a result; every refusal but `unavailable` and
+`invalid-token` is Infra's own, as its contract types it.
+
+| Method                                                 | Answers                                                                                 | Refuses with                                      |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `project()`                                            | the key's project, its mode and its domains                                             | `unavailable`                                     |
+| `startLogin({ channel, address, ip, link_to? })`       | the address, `with_link`, `expires_at`, and `test` (the code and link, with a test key) | `rate-limited`, `not-sent`, `unavailable`         |
+| `verifyLogin({ channel, address, code } \| { token })` | whose address it was                                                                    | `wrong-code`, `no-code`, `no-link`, `unavailable` |
+| `fileComment(comment)`                                 | the comment's `id` and `created_at`                                                     | `invalid`, `too-large`, `unavailable`             |
+| `passOAuth(request, call, origin)`                     | the `Response` for one of Claude's OAuth calls                                          | (a `Response`: OAuth's own errors)                |
+| `agentRequest(request_id)`                             | what the Allow page shows                                                               | `not-found`, `unavailable`                        |
+| `allowAgent(request_id, { user_id, scopes })`          | `{ redirect_to }`, back to Claude                                                       | `not-found`, `not-asked`, `unavailable`           |
+| `denyAgent(request_id)`                                | `{ redirect_to }`, back to Claude                                                       | `not-found`, `unavailable`                        |
+| `agentConnections(user_id)`                            | their connections, oldest first                                                         | `unavailable`                                     |
+| `endAgentConnection(connection_id)`                    | `null`                                                                                  | `not-found`, `unavailable`                        |
+| `endAgentConnections(user_id)`                         | how many it ended                                                                       | `unavailable`                                     |
+| `checkAgentToken(token, { origin, resource })`         | `{ user_id, scopes, connection_id }`                                                    | `invalid-token`, `unavailable`                    |
+
+A request or connection ID that isn't Infra's shape (letters, digits, `_`
+and `-`, at most 128) is refused `not-found` before any call, so a route
+that passes on what it was sent can't reach another of Infra's addresses.
+
+### Claude's login
+
+- **`requestOrigin(request.url)`**: where a request reached the app,
+  `https://<host>`, or `http://<host>` on this computer
+  (`LOOPBACK_HOSTNAMES` and names under `localhost`). Every token is
+  bound to it, as its issuer; give it to `passOAuth` and
+  `checkAgentToken`.
+- **`passOAuth`** answers `metadata`, `authorize`, `token`, `register` and
+  `revoke`. A body over 16 KB is refused 413, never sent on.
+- **`checkAgentToken`** checks the token with Infra's public keys, fetched
+  and cached, with no call to Infra while they're fresh. A token that's
+  run out, for another address, app, project or mode, or not Infra's is
+  `invalid-token`, with why in `message`; the app answers it 401. Infra's
+  keys out of reach is `unavailable`, so the app answers 503 and Claude
+  tries again rather than logging in again.
+- **`APP_PATHS`** (`{ oauth: "/oauth", allow: "/connect" }`) is where the
+  app answers Claude's login; an app that keeps it elsewhere gives
+  `chooseInfra` its own `paths`.
+- **`oauthMetadata`** is the server's metadata, which `passOAuth`
+  answers `metadata` with.
+
+### `infraClient`
+
+`infraClient({ key, url?, send?, paths? })` is the real Infra, which
+`chooseInfra` makes; an app calls it itself only to point a test at a fake
+of Infra (`send` is `fetch`, or the test's own; `url` is `INFRA_URL`,
+Infra's address, unless set).
+
 ### The stand-in, for tests
 
-`standInInfra()` is Infra's test mode in memory: login sends nothing and
-answers the code and the link, which verify as Infra's do (once each, for
-15 minutes, a code for five tries); a comment is checked as Infra checks
-it and kept nowhere; Claude logs in to nothing, and `checkAgentToken` takes
-only the tokens `standInAgentToken()` mints. An app's tests use it, so they
-never reach Infra.
+`standInInfra({ waiting?, logs?, domains? })` is Infra's test mode in
+memory: login sends nothing and answers the code and the link, which
+verify as Infra's do (once each, for 15 minutes, a code for five tries),
+and links, as Infra's do, only to this computer and the project's
+`domains`, over https; any other host gets `with_link: false`. A comment
+is checked as Infra checks it and kept nowhere; Claude logs in to nothing,
+and `checkAgentToken` takes only the tokens `standInAgentToken()` mints:
+`standInAgentToken({ user_id, resource, scopes?, origin?, expires_in? })`,
+`origin` being `http://localhost` and `expires_in` `"10m"` unless set. An
+app's tests use it, so they never reach Infra.
+
+### The contract
+
+`@superforge/infra/contract`, also exported from the package itself, is
+Infra's contract with nothing of Node's, so a page can import it: every
+call's request and answer as zod schemas (`login_start`, `started_login`,
+`agent_request`…), the types made from them, and every reason a call is
+refused, Infra's (`INFRA_ERRORS`) and the package's own (`CLIENT_ERRORS`).
 
 ## When something goes wrong
 
@@ -82,7 +156,7 @@ Every refusal is Infra's own `error`, as it answered it, in the shape a
 template's API answers too: `reason`, for code to branch on, `message`,
 what went wrong and what fixes it in plain words, and any fields the call
 adds, like `retry_after`. Infra's contract has every reason
-(`INFRA_ERRORS`). When the package couldn't ask Infra, it says why in
+(`INFRA_ERRORS`, and the package's own, `CLIENT_ERRORS`). When the package couldn't ask Infra, it says why in
 the same shape:
 
 ```ts
@@ -125,18 +199,14 @@ dependency (Dependabot opens a PR a month), never by copying code.
 
 CI signs in to npm with trusted publishing: npm trusts this repository's
 `ci.yml` to publish the package (the package's settings on npmjs.com,
-"Trusted publisher"), so no npm token is kept anywhere. npm only lets a
-package that exists trust a workflow, so the package was made by hand
-first: a staged 0.1.0 from a checkout signed in with `npm login`, which
-was never approved, since 0.1.1 replaced it. 0.1.1 was the first CI
-published.
+"Trusted publisher"), so no npm token is kept anywhere. A PR's
+`release-version` check refuses one whose version isn't the one right
+after `main`'s, with its line in `CHANGELOG.md`.
 
-From v1 on, Infra keeps answering every version apps are on, the way
-Stripe does: one implementation, of the latest contract, and an adapter
-for each breaking change, which turns an older client's request into
-today's and today's answer back into the one it knows, by the version in
-`Infra-Client`. Until v1, Infra keeps none: an app takes the latest
-release.
+Infra changes its API additively: it adds fields and calls, and never
+renames or drops one an app's release calls, so a release keeps working
+until the app takes the next. Until 1.0.0 it keeps no older shapes: an app
+takes the latest release.
 
 ## Working on it
 

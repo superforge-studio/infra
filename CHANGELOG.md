@@ -3,6 +3,15 @@
 Every release of `@superforge/infra`, newest first. Each is a version on
 npm, published when its push reaches `main` (README.md, "Releases").
 
+- 0.6.0 (Nov 25, 2026): `makeLoginLink({ channel, address, ip, link_to })`
+  makes a login whose link the app sends in a message of its own, like a
+  welcome email, where `startLogin` has Infra send one: Infra's
+  `POST /v1/login/links`, which answers the link and when it stops
+  working. It logs in once, for 24 hours, links only to the project's
+  domains and this computer, and is counted and limited as a login Infra
+  sends is. The contract adds `login_link` and `made_login_link`, and the
+  types `LoginLink`, `MadeLoginLink` and `LinkRefused`; the stand-in makes
+  them too. Nothing changes for an app that doesn't call it.
 - 0.5.0 (Nov 24, 2026): the surface 1.0.0 keeps. The package brings its
   own zod (`^4.0.0`, a dependency, no longer a peer), so an app can move
   to the next zod without it. The root exports functions, constants and

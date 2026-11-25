@@ -12,6 +12,7 @@ import {
     COMMENT_BODY_LIMIT,
     filed_comment,
     isLoopbackHost,
+    login_link,
     login_start,
     login_verify
 } from "./contract/all.js"
@@ -19,8 +20,10 @@ import type { Infra } from "./infra.js"
 import { MINUTE, randomToken } from "./primitives.js"
 
 // How Infra treats a code: it works for 15 minutes and five tries, and a
-// new one for the same address replaces it, link and all
+// new one for the same address replaces it, link and all. A link the app
+// sends itself works for 24 hours, since its message may be read later.
 const LIFETIME = 15 * MINUTE
+const LINK_LIFETIME = 24 * 60 * MINUTE
 const ATTEMPTS = 5
 
 /** A login the stand-in sent, waiting to be verified, by its address */
@@ -37,7 +40,8 @@ export type WaitingLogin = {
  * with no key and no network. Starting a login sends nothing and answers
  * the code and the link, and verifying checks them as Infra does: each
  * works once, for 15 minutes, a code for five tries, and using either
- * spends both. No limits apply, as none do to a test key. A request is
+ * spends both. A link made for the app to send itself works once, for 24
+ * hours. No limits apply, as none do to a test key. A request is
  * checked with Infra's own contract, as Infra checks it, and a comment is
  * answered an ID, though nothing keeps it. Its project has the `domains`
  * it's given, an app's website's. An app's tests always use it, so they
@@ -46,7 +50,8 @@ export type WaitingLogin = {
  * the page shows the code. Its refusals have Infra's reasons, though not
  * always its words, which aren't contract. Like Infra, it links only to
  * this computer and the project's `domains`, over https, and answers
- * `with_link: false` for any other host.
+ * `with_link: false` for any other host, or makes no link the app sends
+ * itself.
  */
 export function standInInfra({ domains = [] }: { domains?: string[] } = {}) {
     return standInWith({ domains })
@@ -109,6 +114,43 @@ export function standInWith({
                         code: sent.code,
                         link: page === null ? null : `${page}#${sent.token}`
                     }
+                }
+            }
+        },
+
+        async makeLoginLink(request) {
+            const parsed = login_link.safeParse(request)
+            if (!parsed.success) {
+                return misfit(parsed.error)
+            }
+            const { channel, address, link_to } = parsed.data
+            const page = linkPage(link_to, domains)
+            if (page === null) {
+                // Infra answers it 400 `invalid`, which the client reads
+                // as unavailable: the app named a page that isn't its own
+                return {
+                    ok: false,
+                    error: {
+                        reason: "unavailable",
+                        message: `link_to isn't on one of the project's domains (${domains.join(", ") || "none"}) or this computer, so Infra makes no link to it.`
+                    }
+                }
+            }
+            const made: WaitingLogin = {
+                address,
+                code: randomCode(),
+                token: randomToken(),
+                attempts: 0,
+                expires_at: Date.now() + LINK_LIFETIME
+            }
+            waiting.set(address, made)
+            return {
+                ok: true,
+                data: {
+                    channel,
+                    address,
+                    link: `${page}#${made.token}`,
+                    expires_at: new Date(made.expires_at)
                 }
             }
         },
@@ -292,7 +334,8 @@ const NO_CODE = {
 }
 const NO_LINK = {
     reason: "no-link" as const,
-    message: `That link has been used, ran out after ${LIFETIME / MINUTE} minutes, or isn't this project's. Start a new login.`
+    message:
+        "That link has been used, ran out (after 15 minutes, or 24 hours for one the app sent itself), or isn't this project's. Start a new login."
 }
 const NO_REQUEST = {
     reason: "not-found" as const,

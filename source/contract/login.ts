@@ -79,10 +79,12 @@ export type StartedLogin = z.output<typeof started_login>
 
 /** Why `login/start` sent nothing */
 export const start_refused = z.union([
-    // Over one of Infra's limits: this address (one a minute, five an
-    // hour), the person's network, or the project's
+    // Over one of Infra's limits: today this address (one a minute, five
+    // an hour), the person's network, or the project's. Read as any name,
+    // since Infra may add a limit, and a release that can't read its name
+    // would answer "login isn't working" in place of "try again soon".
     refusal("rate-limited", {
-        limit: z.enum(["address", "network", "project"]),
+        limit: z.string(),
         retry_after: z.number()
     }),
     // The message didn't go out, and nothing was counted

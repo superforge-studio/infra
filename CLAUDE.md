@@ -32,6 +32,18 @@ The templates' conventions hold here too (Foundation's
   app's utilities is in `primitives.ts`.
 - **Imports end in `.js`**, as Node's ESM resolution needs of a published
   package.
+- **Every export is a promise.** `source/index.ts` and
+  `source/contract/index.ts` name each thing they export; from 1.0.0 on,
+  taking one away is a major. Export a name only when an app or Infra's
+  server needs it, and never a zod schema from the root: the package's
+  zod is its own, so an app can't put the package's schemas inside its
+  own. The package's own modules import the contract from
+  `contract/all.ts`.
+- **Answers are read tolerantly.** Infra may add a field, a limit's name
+  or a scope, so an answer's schema drops what it doesn't know, reads an
+  open list as strings and keeps the values it knows; a request's schema
+  stays exact. `source/tests/answers.test.ts` reads every answer with
+  what Infra may add.
 
 ## Before you call it done
 

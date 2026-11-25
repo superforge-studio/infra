@@ -14,7 +14,7 @@ import type {
     StartRefused,
     VerifiedLogin,
     VerifyRefused
-} from "./contract/index.js"
+} from "./contract/all.js"
 import type { AsyncOperationResult } from "./results.js"
 
 // Superforge Infra, the backend services an app runs on, as an app's

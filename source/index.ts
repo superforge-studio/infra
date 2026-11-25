@@ -1,20 +1,47 @@
 // @superforge/infra: Superforge Infra, the backend services Foundation and
 // Skylevel apps run on, as an app's server calls it. README.md has how an
-// app uses it. Infra's contract, every call's request and answer as zod
-// schemas, is here too, and on its own at `@superforge/infra/contract`,
-// which needs nothing of Node's, for a page.
+// app uses it.
+//
+// Every name here is a promise: from 1.0.0 on, taking one away is a major.
+// So the package exports what an app calls, its constants and its types,
+// and no zod schema: those are at `@superforge/infra/contract` alone
+// (contract/index.ts), made with the package's own zod.
 
-// Claude's login to an app's MCP: where a request reached the app, which
-// every token is bound to, and the OAuth server's metadata
-export { oauthMetadata, requestOrigin } from "./agents.js"
-// Calling Infra: the real one over HTTP with a project's key, the
-// stand-in, Infra's test mode in memory, and choosing between them by how
-// the server runs and the keys it has
+// Where a request reached the app, which every token Claude holds is bound to
+export { requestOrigin } from "./agents.js"
+// Calling Infra: the real one over HTTP with a project's key, chosen by
+// how the server runs and the keys it has, or the stand-in, Infra's test
+// mode in memory, which an app's tests use
 export { chooseInfra, type InfraChoice } from "./choose.js"
-export { INFRA_URL, infraClient } from "./client.js"
-// Infra's contract (contract/): every call's request and answer, every
-// reason it refuses one, and the constants they're made of
-export * from "./contract/index.js"
+export { infraClient } from "./client.js"
+// The constants and types of Infra's contract an app calls with
+export {
+    AGENT_SCOPES,
+    type AgentAllow,
+    type AgentConnection,
+    type AgentRefused,
+    type AgentRequest,
+    type AgentScope,
+    APP_PATHS,
+    type AppPaths,
+    type ClientErrorReason,
+    type CommentRefused,
+    type FiledComment,
+    type InfraErrorReason,
+    type InfraIssue,
+    type InfraProject,
+    type KeptComment,
+    type KeyMode,
+    type LoginChannel,
+    type LoginProof,
+    type LoginStart,
+    OAUTH_CALLS,
+    type OAuthCall,
+    type StartedLogin,
+    type StartRefused,
+    type VerifiedLogin,
+    type VerifyRefused
+} from "./contract/index.js"
 // What an app asks of Infra, and what the app learns from Claude's token
 export type {
     AgentToken,
@@ -25,10 +52,4 @@ export type {
 // The result types every call answers, the same shape as the templates'
 // global `OperationResult` and `AsyncOperationResult`
 export type { AsyncOperationResult, OperationResult } from "./results.js"
-export {
-    standInAgentToken,
-    standInInfra,
-    type WaitingLogin
-} from "./stand-in.js"
-// Which release this is, which every call tells Infra in `Infra-Client`
-export { PACKAGE_VERSION } from "./version.js"
+export { standInAgentToken, standInInfra } from "./stand-in.js"

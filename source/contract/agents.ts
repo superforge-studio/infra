@@ -17,6 +17,17 @@ export const agent_scope = z.enum(AGENT_SCOPES)
 export type AgentScope = z.infer<typeof agent_scope>
 
 /**
+ * Scopes as an answer carries them: whatever Infra says, keeping the ones
+ * this release knows, as the token check does. Infra may add a scope, and
+ * a release that can't read it would find the whole answer unreadable.
+ */
+const known_scopes = z
+    .array(z.string())
+    .transform((scopes) =>
+        AGENT_SCOPES.filter((scope) => scopes.includes(scope))
+    )
+
+/**
  * The header the app's server sends Claude's OAuth calls on with: where
  * Claude reached the app, `https://example.com`, its tokens' issuer.
  * Only a header can carry it, since the call's body and query are Claude's.
@@ -66,7 +77,7 @@ export const agent_request = z.object({
     request: z.object({
         id: z.string(),
         client_name: z.string(),
-        scopes: z.array(agent_scope),
+        scopes: known_scopes,
         // The address Claude asked to use, which its tokens are good for:
         // the app's MCP
         resource: z.string(),
@@ -97,7 +108,7 @@ export const agent_connection = z.object({
     id: z.string(),
     user_id: z.string(),
     client_name: z.string(),
-    scopes: z.array(agent_scope),
+    scopes: known_scopes,
     resource: z.string(),
     // When Claude last refreshed it, to within about ten minutes
     last_used_at: z.iso

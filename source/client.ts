@@ -18,7 +18,7 @@ import {
     started_login,
     verified_login,
     verify_refused
-} from "./contract/index.js"
+} from "./contract/all.js"
 import type { Infra, InfraUnavailable } from "./infra.js"
 import { CALL_TIMEOUT } from "./primitives.js"
 import type { AsyncOperationResult } from "./results.js"

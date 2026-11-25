@@ -1,6 +1,6 @@
 // Infra's contract, as `@superforge/infra/contract` exports it: the
 // constants and types every call is made of, the schemas of what Infra is
-// sent, which Infra checks with, and the two answers Infra's own server
+// sent, which Infra checks with, and the three answers Infra's own server
 // ties itself to. Nothing here runs in Node alone, so a page can import it
 // too. Infra's README has the calls.
 //
@@ -42,12 +42,17 @@ export {
     type InfraIssue
 } from "./errors.js"
 export {
+    type LinkRefused,
     LOGIN_CHANNELS,
     type LoginChannel,
+    type LoginLink,
     type LoginProof,
     type LoginStart,
+    login_link,
     login_start,
     login_verify,
+    type MadeLoginLink,
+    made_login_link,
     type StartedLogin,
     type StartRefused,
     started_login,

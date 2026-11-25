@@ -14,6 +14,8 @@ import {
     infra_failure,
     infra_project,
     kept_comment,
+    link_refused,
+    made_login_link,
     start_refused,
     started_login,
     verified_login,
@@ -162,6 +164,16 @@ export function infraClient({
                 call,
                 { schema: started_login },
                 start_refused
+            )
+        },
+
+        makeLoginLink(request) {
+            const call = "/login/links"
+            return answered(
+                ask("POST", call, request),
+                call,
+                { schema: made_login_link },
+                link_refused
             )
         },
 

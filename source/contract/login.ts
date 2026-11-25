@@ -77,20 +77,51 @@ export const started_login = z.object({
 })
 export type StartedLogin = z.output<typeof started_login>
 
+// Over one of Infra's limits: today this address (one a minute, five an
+// hour), the person's network, or the project's. Read as any name, since
+// Infra may add a limit, and a release that can't read its name would
+// answer "login isn't working" in place of "try again soon".
+const rate_limited = refusal("rate-limited", {
+    limit: z.string(),
+    retry_after: z.number()
+})
+
 /** Why `login/start` sent nothing */
 export const start_refused = z.union([
-    // Over one of Infra's limits: today this address (one a minute, five
-    // an hour), the person's network, or the project's. Read as any name,
-    // since Infra may add a limit, and a release that can't read its name
-    // would answer "login isn't working" in place of "try again soon".
-    refusal("rate-limited", {
-        limit: z.string(),
-        retry_after: z.number()
-    }),
+    rate_limited,
     // The message didn't go out, and nothing was counted
     refusal("not-sent", {})
 ])
 export type StartRefused = z.output<typeof start_refused>
+
+/**
+ * `POST /v1/login/links`: a login whose link the app sends in a message of
+ * its own, like a welcome email, where `login/start` has Infra send one.
+ * `link_to` must be on one of the project's domains, or this computer.
+ */
+export const login_link = login_address.extend({
+    ip: visitor_ip,
+    link_to
+})
+export type LoginLink = z.input<typeof login_link>
+
+/** What `login/links` answers: the link, for the app's own message */
+export const made_login_link = z.object({
+    channel: login_channel,
+    // The address as Infra keeps it
+    address: z.string(),
+    // `link_to#<token>`, which logs in once, until `expires_at`. A newer
+    // login to the same address replaces it.
+    link: z.string(),
+    expires_at: z.iso
+        .datetime({ offset: true })
+        .transform((value) => new Date(value))
+})
+export type MadeLoginLink = z.output<typeof made_login_link>
+
+/** Why `login/links` made nothing: over one of Infra's limits, as a start can be */
+export const link_refused = rate_limited
+export type LinkRefused = z.output<typeof link_refused>
 
 /**
  * `POST /v1/login/verify`: the code, with the address it went to, or the

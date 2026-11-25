@@ -7,8 +7,11 @@ import type {
     FiledComment,
     InfraProject,
     KeptComment,
+    LinkRefused,
+    LoginLink,
     LoginProof,
     LoginStart,
+    MadeLoginLink,
     OAuthCall,
     StartedLogin,
     StartRefused,
@@ -45,6 +48,16 @@ export type Infra = {
     startLogin(
         request: LoginStart
     ): AsyncOperationResult<StartedLogin, StartRefused | InfraUnavailable>
+    /**
+     * Makes a login whose link the app sends in a message of its own, like
+     * a welcome email, rather than Infra sending one: a link to `link_to`,
+     * which must be on one of the project's domains or localhost, that
+     * logs in once, for 24 hours. It's counted and limited as a login
+     * Infra sends is. `ip` is the person's, which Infra's limits count.
+     */
+    makeLoginLink(
+        request: LoginLink
+    ): AsyncOperationResult<MadeLoginLink, LinkRefused | InfraUnavailable>
     /**
      * Whose address `proof` is: the code typed with the address it went to,
      * or the link's token alone. Either works once, and spends the other.

@@ -101,6 +101,50 @@ test("Infra's refusals come back as its own error, as they are", async () => {
     }
 })
 
+test("making a link for the app's own message asks login/links, and answers the link", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { infra, received } = fakeInfra({
+        status: 200,
+        body: {
+            channel: "email",
+            address: "ada@example.com",
+            link: "https://example.com/login?for=build-kit#x",
+            expires_at: "2026-11-16T18:00:00.000Z"
+        }
+    })
+    const link_to = "https://example.com/login?for=build-kit"
+    expect(await infra.makeLoginLink({ ...START, link_to })).toEqual({
+        ok: true,
+        data: {
+            channel: "email",
+            address: "ada@example.com",
+            link: "https://example.com/login?for=build-kit#x",
+            expires_at: new Date("2026-11-16T18:00:00.000Z")
+        }
+    })
+    expect(received).toEqual([
+        {
+            method: "POST",
+            path: "/v1/login/links",
+            key: `Bearer ${KEY}`,
+            client: CLIENT,
+            body: { ...START, link_to }
+        }
+    ])
+
+    const limited = {
+        reason: "rate-limited",
+        limit: "address",
+        retry_after: 42,
+        message: "Ask again in 42 seconds."
+    }
+    const refusing = fakeInfra({ status: 429, body: { error: limited } })
+    expect(await refusing.infra.makeLoginLink({ ...START, link_to })).toEqual({
+        ok: false,
+        error: limited
+    })
+})
+
 test("verifying sends the code with its address, or the token, and answers whose it was", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { infra, received } = fakeInfra({

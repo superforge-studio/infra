@@ -86,6 +86,7 @@ Every method answers a result; every refusal but `unavailable` and
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `project()`                                            | the key's project, its mode and its domains                                             | `unavailable`                                     |
 | `startLogin({ channel, address, ip, link_to? })`       | the address, `with_link`, `expires_at`, and `test` (the code and link, with a test key) | `rate-limited`, `not-sent`, `unavailable`         |
+| `makeLoginLink({ channel, address, ip, link_to })`     | the address, the `link` for the app's own message, and `expires_at` (24 hours on)       | `rate-limited`, `unavailable`                     |
 | `verifyLogin({ channel, address, code } \| { token })` | whose address it was                                                                    | `wrong-code`, `no-code`, `no-link`, `unavailable` |
 | `fileComment(comment)`                                 | the comment's `id` and `created_at`                                                     | `invalid`, `too-large`, `unavailable`             |
 | `passOAuth(request, call, origin)`                     | the `Response` for one of Claude's OAuth calls                                          | (a `Response`: OAuth's own errors)                |
@@ -136,7 +137,9 @@ address unless set).
 memory: login sends nothing and answers the code and the link, which
 verify as Infra's do (once each, for 15 minutes, a code for five tries),
 and links, as Infra's do, only to this computer and the project's
-`domains`, over https; any other host gets `with_link: false`. A comment
+`domains`, over https; any other host gets `with_link: false`. A link
+made for the app's own message (`makeLoginLink`) verifies the same way,
+for 24 hours, and one to any other host is refused `unavailable`. A comment
 is checked as Infra checks it and kept nowhere; Claude logs in to nothing,
 and `checkAgentToken` takes only the tokens `standInAgentToken()` mints:
 `standInAgentToken({ user_id, resource, scopes?, origin?, expires_in? })`,
@@ -149,9 +152,10 @@ app's tests use it, so they never reach Infra.
 a page can import it: the constants and types every call is made of, every
 reason a call is refused, Infra's (`INFRA_ERRORS`) and the package's own
 (`CLIENT_ERRORS`), and the zod schemas of what Infra is sent (`login_start`,
-`login_verify`, `filed_comment`, `agent_allow`, `connections_query`), which
-Infra checks with, with the two answers Infra's own server ties itself to
-(`started_login`, `verified_login`). The package itself exports the same
+`login_link`, `login_verify`, `filed_comment`, `agent_allow`,
+`connections_query`), which Infra checks with, with the three answers
+Infra's own server ties itself to (`started_login`, `made_login_link`,
+`verified_login`). The package itself exports the same
 constants and types, and no schema.
 
 A schema here is made with the package's own zod: parse with it as it is,

@@ -265,6 +265,9 @@ function unavailableInfra(message: string): Infra {
         async startLogin() {
             return unavailable
         },
+        async makeLoginLink() {
+            return unavailable
+        },
         async verifyLogin() {
             return unavailable
         },

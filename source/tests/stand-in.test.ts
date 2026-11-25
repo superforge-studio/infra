@@ -211,3 +211,55 @@ test("the code and the link stop after 15 minutes", async () => {
         }
     })
 })
+
+// A link made for the app's own message, to `link_to`
+async function madeLink(link_to: string) {
+    const infra = standInInfra({ domains: ["example.com"] })
+    const made = await infra.makeLoginLink({
+        channel: "email",
+        address: EMAIL,
+        ip: "::1",
+        link_to
+    })
+    return { infra, made }
+}
+
+test("a link the app sends itself logs in once, for 24 hours", async () => {
+    vi.useFakeTimers()
+    const { infra, made } = await madeLink(
+        "http://example.com:8080/login?for=build-kit"
+    )
+    if (!made.ok) {
+        throw new Error("The stand-in didn't make a link")
+    }
+    expect(made.data.link).toMatch(
+        /^https:\/\/example\.com\/login\?for=build-kit#[\w-]{43}$/
+    )
+    expect(made.data.expires_at.getTime() - Date.now()).toBe(24 * 60 * MINUTE)
+    const token = made.data.link.split("#")[1] ?? ""
+    vi.advanceTimersByTime(23 * 60 * MINUTE)
+    expect(await infra.verifyLogin({ token })).toEqual({
+        ok: true,
+        data: { channel: "email", address: EMAIL }
+    })
+    expect((await infra.verifyLogin({ token })).ok).toBe(false)
+})
+
+test("a link the app sends itself stops after 24 hours", async () => {
+    vi.useFakeTimers()
+    const { infra, made } = await madeLink("https://example.com/login")
+    const token = made.ok ? (made.data.link.split("#")[1] ?? "") : ""
+    vi.advanceTimersByTime(24 * 60 * MINUTE)
+    expect((await infra.verifyLogin({ token })).ok).toBe(false)
+})
+
+test("a link the app sends itself goes only to its own pages", async () => {
+    const { made } = await madeLink("https://example.org/login")
+    expect(made).toEqual({
+        ok: false,
+        error: {
+            reason: "unavailable",
+            message: expect.stringContaining("isn't on one of the project's")
+        }
+    })
+})

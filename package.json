@@ -1,6 +1,6 @@
 {
     "name": "@superforge/infra",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Superforge Infra, the backend services Foundation and Skylevel apps run on, as an app's server calls it",
     "license": "MIT",
     "type": "module",

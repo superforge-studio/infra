@@ -9,9 +9,9 @@ import {
     type AppPaths,
     KEY_BODY,
     KEY_PREFIXES
-} from "./contract/index.js"
+} from "./contract/all.js"
 import type { Infra, InfraUnavailable } from "./infra.js"
-import { standInInfra, type WaitingLogin } from "./stand-in.js"
+import { standInWith, type WaitingLogin } from "./stand-in.js"
 
 // Which Infra the server calls, by what it runs as and the keys it has:
 //
@@ -154,7 +154,7 @@ export function chooseInfra({
             )
         }
         return {
-            infra: standInInfra({
+            infra: standInWith({
                 waiting: devServerLogins(),
                 logs: true,
                 domains

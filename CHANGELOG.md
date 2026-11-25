@@ -3,6 +3,21 @@
 Every release of `@superforge/infra`, newest first. Each is a version on
 npm, published when its push reaches `main` (README.md, "Releases").
 
+- 0.5.0 (Nov 24, 2026): the surface 1.0.0 keeps. The package brings its
+  own zod (`^4.0.0`, a dependency, no longer a peer), so an app can move
+  to the next zod without it. The root exports functions, constants and
+  types alone, 37 names where it had 92; `@superforge/infra/contract`
+  exports the constants, the types and the schemas of what Infra is sent,
+  with `started_login` and `verified_login`, 46 where it had 76. Gone:
+  `oauthMetadata`, `INFRA_URL`, `PACKAGE_VERSION`, `WaitingLogin`, the
+  stand-in's `waiting` and `logs`, every refusal schema, the answers no
+  one imported and the field schemas, `agent_scope` among them: an app
+  builds its own, `z.enum(AGENT_SCOPES)`. Answers are read tolerantly: a
+  429's `limit` is any name, and a request's or a connection's `scopes`
+  keep the ones this release knows, so Infra can add a limit or a scope
+  without breaking an app. Fetching Infra's public keys says which
+  release asks (`Infra-Client`), as every call does, and that release is
+  the version Infra answers a call as.
 - 0.4.0 (Nov 24, 2026): the v1.0.0 review's quick fixes (TASK-1905).
   `checkAgentToken` refuses with `{ reason: "invalid-token", message }`,
   saying why (ran out, another address, app, project or mode), rather than

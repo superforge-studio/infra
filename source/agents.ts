@@ -17,7 +17,7 @@ import {
     isLoopbackHost,
     type KeyMode,
     type OAuthCall
-} from "./contract/index.js"
+} from "./contract/all.js"
 import type {
     AgentToken,
     AgentTokenRefused,
@@ -279,7 +279,7 @@ export function unavailableOAuth(message: string) {
 
 /**
  * Where a token's signature is checked: Infra's published public keys,
- * fetched with `send`
+ * fetched with `send`, saying which release asks, as every call does
  */
 export function infraKeys(
     url: string,
@@ -288,6 +288,7 @@ export function infraKeys(
     return createRemoteJWKSet(
         new URL("/.well-known/jwks.json", new URL(url).origin),
         {
+            headers: { [CLIENT_HEADER]: CLIENT },
             timeoutDuration: 10 * SECOND,
             cooldownDuration: 30 * SECOND,
             [customFetch]: send

@@ -7,14 +7,14 @@ for. It's the one way an app reaches Infra: a typed client, the stand-in
 an app's tests and a fresh dev server use in its place, and the choice
 between them. Infra's own API reference, each call with its fields and
 errors, isn't public: an agent reads it with the Superforge MCP's
-`read_infra_docs`. Everything an app calls is below, and every request and
-answer is a zod schema in `@superforge/infra/contract`.
+`read_infra_docs`. Everything an app calls is below.
 
 ```bash
-pnpm add @superforge/infra zod
+pnpm add @superforge/infra
 ```
 
-It needs Node 22 or later, and zod 4, which an app has already.
+It needs Node 22 or later. It brings its own zod 4, so an app can be on any
+zod, and move to the next one without waiting for the package.
 
 ## Using it
 
@@ -119,19 +119,20 @@ that passes on what it was sent can't reach another of Infra's addresses.
 - **`APP_PATHS`** (`{ oauth: "/oauth", allow: "/connect" }`) is where the
   app answers Claude's login; an app that keeps it elsewhere gives
   `chooseInfra` its own `paths`.
-- **`oauthMetadata`** is the server's metadata, which `passOAuth`
-  answers `metadata` with.
+- **`AGENT_SCOPES`** (`["read", "act"]`) is what someone lets Claude do.
+  An app that checks scopes with zod builds its own list from it,
+  `z.enum(AGENT_SCOPES)`, with its own zod.
 
 ### `infraClient`
 
 `infraClient({ key, url?, send?, paths? })` is the real Infra, which
 `chooseInfra` makes; an app calls it itself only to point a test at a fake
-of Infra (`send` is `fetch`, or the test's own; `url` is `INFRA_URL`,
-Infra's address, unless set).
+of Infra (`send` is `fetch`, or the test's own; `url` is Infra's own
+address unless set).
 
 ### The stand-in, for tests
 
-`standInInfra({ waiting?, logs?, domains? })` is Infra's test mode in
+`standInInfra({ domains? })` is Infra's test mode in
 memory: login sends nothing and answers the code and the link, which
 verify as Infra's do (once each, for 15 minutes, a code for five tries),
 and links, as Infra's do, only to this computer and the project's
@@ -144,11 +145,22 @@ app's tests use it, so they never reach Infra.
 
 ### The contract
 
-`@superforge/infra/contract`, also exported from the package itself, is
-Infra's contract with nothing of Node's, so a page can import it: every
-call's request and answer as zod schemas (`login_start`, `started_login`,
-`agent_request`…), the types made from them, and every reason a call is
-refused, Infra's (`INFRA_ERRORS`) and the package's own (`CLIENT_ERRORS`).
+`@superforge/infra/contract` is Infra's contract with nothing of Node's, so
+a page can import it: the constants and types every call is made of, every
+reason a call is refused, Infra's (`INFRA_ERRORS`) and the package's own
+(`CLIENT_ERRORS`), and the zod schemas of what Infra is sent (`login_start`,
+`login_verify`, `filed_comment`, `agent_allow`, `connections_query`), which
+Infra checks with, with the two answers Infra's own server ties itself to
+(`started_login`, `verified_login`). The package itself exports the same
+constants and types, and no schema.
+
+A schema here is made with the package's own zod: parse with it as it is,
+and never put it inside a schema of the app's own, which may be another
+zod's and then fails. Build the app's own from the constants instead.
+
+Every name either entry exports is a promise: from 1.0.0 on, taking one
+away is a major. So they export only what an app or Infra's server uses;
+the rest is the package's own.
 
 ## When something goes wrong
 
@@ -181,11 +193,14 @@ should only learn that login isn't working.
 
 ## What every call tells Infra
 
-Every call, Claude's OAuth calls passed through included, carries
-`Infra-Client: @superforge/infra/<version>`, so Infra knows which version
-each app is on, and can say when one's out of date (`PACKAGE_VERSION` and
-`CLIENT_HEADER` are exported). The version is written in
-`source/version.ts`, which a test checks against `package.json`.
+Every call, Claude's OAuth calls passed through and the fetch of Infra's
+public keys included, carries `Infra-Client: @superforge/infra/<version>`
+(`CLIENT_HEADER`, in the contract), so Infra knows which version each app
+is on. That release is the version Infra answers the call as: once Infra
+changes an answer, a release from before the change still gets the shape
+it reads. A call that names no release, like one from a terminal, is
+answered as the oldest release Infra still answers. The version is written
+in `source/version.ts`, which a test checks against `package.json`.
 
 ## Releases
 
@@ -208,6 +223,13 @@ renames or drops one an app's release calls, so a release keeps working
 until the app takes the next. Until 1.0.0 it keeps no older shapes: an app
 takes the latest release.
 
+A release reads what Infra adds without breaking: a field it doesn't know
+is dropped, a 429's `limit` is read as any name, and a request's or a
+connection's `scopes` keep only the scopes the release knows. A refusal
+whose `reason` it doesn't know is `unavailable`, with Infra's `message`.
+`mode` and a login's `channel` stay closed lists: an app only meets a new
+one once it asks for it.
+
 ## Working on it
 
 ```bash
@@ -220,13 +242,14 @@ checkout at this folder (`pnpm add @superforge/infra@link:<path to this
 folder>`), and back to the released version before its PR: a `link:` is
 this computer's alone, and CI can't install it.
 
-- `source/index.ts`: everything the package exports.
-- `source/contract/`: Infra's contract, exported on its own at
-  `@superforge/infra/contract`, with nothing of Node's: every call's
-  request and answer as zod schemas, which Infra checks what it's sent
-  with, and every reason it refuses one (`errors.ts`), a file per area:
-  `login.ts`, `comments.ts`, `agents.ts`, `project.ts` and `people.ts`
-  (`user_id`, the app's ID for one of its people).
+- `source/index.ts`: everything the package exports, by name.
+- `source/contract/`: Infra's contract, with nothing of Node's: every
+  call's request and answer as zod schemas, which Infra checks what it's
+  sent with, and every reason it refuses one (`errors.ts`), a file per
+  area: `login.ts`, `comments.ts`, `agents.ts`, `project.ts` and
+  `people.ts` (`user_id`, the app's ID for one of its people).
+  `index.ts` is what `@superforge/infra/contract` exports, by name;
+  `all.ts` is all of it, which only the package itself imports.
 - `source/infra.ts`: `Infra`, what an app asks of it, and its results.
 - `source/client.ts`: Infra over HTTP with a project's key, its answers
   parsed with the contract and every one logged. No call is retried: a

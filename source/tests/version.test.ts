@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
+import { infraKeys } from "../agents.js"
 import { infraClient } from "../client.js"
 import { CLIENT_HEADER } from "../contract/index.js"
 import { CLIENT, PACKAGE_VERSION } from "../version.js"
@@ -43,4 +44,18 @@ test("every call says which version made it, Claude's passed through too", async
     )
     expect(sent).toEqual([CLIENT, CLIENT, CLIENT])
     expect(CLIENT_HEADER).toBe("Infra-Client")
+})
+
+test("fetching Infra's public keys says which version asks too", async () => {
+    const sent: (string | null)[] = []
+    const keys = infraKeys("https://infra.test/v1", async (input, init) => {
+        expect(String(input)).toBe("https://infra.test/.well-known/jwks.json")
+        sent.push(new Headers(init?.headers).get(CLIENT_HEADER))
+        return Response.json({ keys: [] })
+    })
+    // No key matches, which doesn't matter: the fetch is what's checked
+    await Promise.resolve(
+        keys({ alg: "ES256", kid: "k-1" }, { payload: "", signature: "" })
+    ).catch(() => null)
+    expect(sent).toEqual([CLIENT])
 })

@@ -14,7 +14,7 @@ import {
     isLoopbackHost,
     login_start,
     login_verify
-} from "./contract/index.js"
+} from "./contract/all.js"
 import type { Infra } from "./infra.js"
 import { MINUTE, randomToken } from "./primitives.js"
 
@@ -47,12 +47,18 @@ export type WaitingLogin = {
  * always its words, which aren't contract. Like Infra, it links only to
  * this computer and the project's `domains`, over https, and answers
  * `with_link: false` for any other host.
- *
- * `waiting` is where it keeps what it sent, by address: its own, or one
- * that outlives a dev server's reloads. With `logs`, as a dev server has
- * it, each comment is logged, since nothing keeps it.
  */
-export function standInInfra({
+export function standInInfra({ domains = [] }: { domains?: string[] } = {}) {
+    return standInWith({ domains })
+}
+
+/**
+ * The stand-in as the package itself makes it, a dev server's in
+ * choose.ts: `waiting` is where it keeps what it sent, by address, its own
+ * or one that outlives a dev server's reloads. With `logs`, as a dev
+ * server has it, each comment is logged, since nothing keeps it.
+ */
+export function standInWith({
     waiting = new Map(),
     logs = false,
     domains = []
